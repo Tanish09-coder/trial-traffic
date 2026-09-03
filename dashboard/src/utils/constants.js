@@ -38,6 +38,6 @@ export const TRAFFIC_CONSTANTS = {
     MAX_RED_WAIT_SEC: 60,
     YELLOW_DURATION_SEC: 3,
     ALL_RED_DURATION_SEC: 1,
-    FIXED_DURATIONS: { N: 30, S: 45, E: 22, W: 60 }
+    FIXED_DURATIONS: { N: 45, S: 45, E: 45, W: 45 }
   }
 };

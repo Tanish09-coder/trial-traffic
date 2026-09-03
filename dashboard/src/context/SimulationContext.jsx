@@ -11,6 +11,21 @@ import {
   setSimulationSpeed as setBackendSpeed, 
   resetBackendSimulation 
 } from '../utils/api';
+import { runComparisonPair } from '../utils/comparisonEngine';
+
+const DEFAULT_BELLEVUE_EVENTS = [
+  { eventId: 'bellevue-0', videoTimeSec: 11.2, vehicleType: 'car', mappedDirection: 'S' },
+  { eventId: 'bellevue-1', videoTimeSec: 18.5, vehicleType: 'car', mappedDirection: 'S' },
+  { eventId: 'bellevue-2', videoTimeSec: 25.1, vehicleType: 'truck', mappedDirection: 'S' },
+  { eventId: 'bellevue-3', videoTimeSec: 32.8, vehicleType: 'car', mappedDirection: 'S' },
+  { eventId: 'bellevue-4', videoTimeSec: 45.4, vehicleType: 'bus', mappedDirection: 'S' },
+  { eventId: 'bellevue-5', videoTimeSec: 58.0, vehicleType: 'car', mappedDirection: 'S' },
+  { eventId: 'bellevue-6', videoTimeSec: 72.3, vehicleType: 'car', mappedDirection: 'S' },
+  { eventId: 'bellevue-7', videoTimeSec: 89.6, vehicleType: 'truck', mappedDirection: 'S' },
+  { eventId: 'bellevue-8', videoTimeSec: 104.2, vehicleType: 'car', mappedDirection: 'S' },
+  { eventId: 'bellevue-9', videoTimeSec: 120.1, vehicleType: 'car', mappedDirection: 'S' },
+  { eventId: 'bellevue-10', videoTimeSec: 142.7, vehicleType: 'car', mappedDirection: 'S' }
+];
 
 const SimulationContext = createContext(null);
 
@@ -66,12 +81,96 @@ export const SimulationProvider = ({ children }) => {
 
   const [metrics, setMetrics] = useState(() => vehicleManager.getMetrics());
 
+  // Video replay session state
+  const [videoReplayActive, setVideoReplayActive] = useState(false);
+  const [videoReplayConfig, setVideoReplayConfig] = useState(null); // { videoId, arrivalEvents, mappedDirection, durationSec }
+  const videoEventCursorRef = useRef(0);
+  const processedEventIdsRef = useRef(new Set());
+
+  // Computed comparison engine state
+  const [comparisonResult, setComparisonResult] = useState(null);
+  const [comparisonStatus, setComparisonStatus] = useState('IDLE'); // 'IDLE' | 'RUNNING' | 'COMPLETED' | 'STALE' | 'FAILED'
+  const [comparisonError, setComparisonError] = useState(null);
+  const jobTokenRef = useRef(0);
+  const activeTimerRef = useRef(null);
+
+  const runComparison = useCallback((configOverride = null) => {
+    // Check if configOverride is a React Event object
+    const isDOMEvent = configOverride && typeof configOverride.preventDefault === 'function';
+    const cfg = (!isDOMEvent && configOverride && configOverride.arrivalEvents)
+      ? configOverride
+      : videoReplayConfig;
+
+    const targetCfg = (!cfg || !cfg.arrivalEvents || cfg.arrivalEvents.length === 0)
+      ? { videoId: 'bellevue_trial', arrivalEvents: DEFAULT_BELLEVUE_EVENTS, mappedDirection: 'S', durationSec: 158.63 }
+      : cfg;
+
+    setComparisonError(null);
+    setComparisonStatus('RUNNING');
+
+    jobTokenRef.current++;
+    const currentToken = jobTokenRef.current;
+
+    if (activeTimerRef.current) {
+      clearTimeout(activeTimerRef.current);
+    }
+
+    activeTimerRef.current = setTimeout(() => {
+      try {
+        const res = runComparisonPair({
+          videoId: targetCfg.videoId || 'bellevue_trial',
+          arrivalEvents: targetCfg.arrivalEvents,
+          mappedDirection: targetCfg.mappedDirection || 'S',
+          durationSec: targetCfg.durationSec || 158.63,
+          randomSeed: 42
+        });
+
+        // Job Token Protection: ignore results if a newer run was triggered
+        if (currentToken === jobTokenRef.current) {
+          setComparisonResult(res);
+          setComparisonStatus('COMPLETED');
+          setComparisonError(null);
+        }
+      } catch (err) {
+        console.error('Comparison execution error:', err);
+        if (currentToken === jobTokenRef.current) {
+          setComparisonStatus('FAILED');
+          setComparisonError(err.message || 'Comparison calculation failed.');
+        }
+      }
+    }, 15);
+  }, [videoReplayConfig]);
+
+  useEffect(() => {
+    return () => {
+      if (activeTimerRef.current) clearTimeout(activeTimerRef.current);
+    };
+  }, []);
+
   // Direct simulation tick logic with sub-stepping for physical accuracy
   const tickSimulation = useCallback(() => {
     if (!useMock) return;
 
     try {
       const { totalDt, subSteps } = clock.tick();
+      const currentSimTime = clock.getSimTime();
+
+      // If video replay is active, dispatch pending arrival events up to currentSimTime
+      if (videoReplayActive && videoReplayConfig && videoReplayConfig.arrivalEvents) {
+        const events = videoReplayConfig.arrivalEvents;
+        const mappedDir = videoReplayConfig.mappedDirection || 'S';
+        
+        while (
+          videoEventCursorRef.current < events.length &&
+          events[videoEventCursorRef.current].videoTimeSec <= currentSimTime
+        ) {
+          const event = events[videoEventCursorRef.current++];
+          if (event && !processedEventIdsRef.current.has(event.eventId)) {
+            processedEventIdsRef.current.add(event.eventId);
+            vehicleManager.injectExternalArrival(mappedDir, event);
+          }
+        }
+      }
 
       subSteps.forEach(subDt => {
         const stoppedQueues = vehicleManager.getStoppedQueues();
@@ -122,13 +221,20 @@ export const SimulationProvider = ({ children }) => {
         strategy: sState.strategy,
         staged_strategy: sState.staged_strategy,
         decision: sState.decision,
-        dataSource
+        dataSource,
+        videoReplayActive,
+        videoReplayConfig,
+        simTime: currentSimTime,
+        approachSources: vehicleManager.approachSources,
+        empty_roads: ['N', 'S', 'E', 'W'].filter(d => (vState.queues[d] || 0) === 0),
+        roads_with_traffic: ['N', 'S', 'E', 'W'].filter(d => (vState.queues[d] || 0) > 0)
       };
+
 
       // Record analytics tick
       analyticsManager.recordTick({
         dt: totalDt,
-        simTime: clock.getSimTime(),
+        simTime: currentSimTime,
         currentSignal: sState.current_signal,
         phase: sState.phase,
         stoppedQueues: vehicleManager.getStoppedQueues(),
@@ -150,7 +256,8 @@ export const SimulationProvider = ({ children }) => {
       console.error('Simulation tick error:', err);
       setError(`Simulation tick error: ${err.message}`);
     }
-  }, [useMock, dataSource]);
+  }, [useMock, dataSource, videoReplayActive, videoReplayConfig]);
+
 
   // Single central simulation loop protected against StrictMode duplicates
   const isLoopActiveRef = useRef(false);
@@ -296,13 +403,69 @@ export const SimulationProvider = ({ children }) => {
   const resetSimulation = useCallback(() => {
     analyticsManager.reset();
     clock.reset();
+    videoEventCursorRef.current = 0;
+    processedEventIdsRef.current.clear();
+    setVideoReplayActive(false);
+    setDataSource('simulation');
     if (useMock) {
+      ['N', 'S', 'E', 'W'].forEach(d => vehicleManager.setApproachSource(d, 'simulation'));
       vehicleManager.reset();
       signalManager.reset();
     } else {
       resetBackendSimulation().catch(err => console.warn('Backend reset error:', err));
     }
   }, [useMock, vehicleManager, signalManager, clock]);
+
+  const startVideoDrivenSimulation = useCallback(({ videoId, arrivalEvents, mappedDirection, durationSec }) => {
+    if (!useMock) {
+      setError('Video-driven simulation is only available in Browser Simulation mode.');
+      return;
+    }
+    
+    // Explicit fresh session reset
+    analyticsManager.reset();
+    clock.reset();
+    videoEventCursorRef.current = 0;
+    processedEventIdsRef.current.clear();
+
+    if (useMock) {
+      vehicleManager.reset();
+      signalManager.reset();
+    }
+
+    const targetDirection = ['N', 'S', 'E', 'W'].includes(mappedDirection) ? mappedDirection : 'S';
+
+    // Set target approach source to recorded_video, others remain simulation
+    ['N', 'S', 'E', 'W'].forEach(d => {
+      if (d === targetDirection) {
+        vehicleManager.setApproachSource(d, 'recorded_video');
+        vehicleManager.clearApproach(d);
+      } else {
+        vehicleManager.setApproachSource(d, 'simulation');
+      }
+    });
+
+    const replayCfg = {
+      videoId,
+      arrivalEvents: arrivalEvents || [],
+      mappedDirection: targetDirection,
+      durationSec: durationSec || 160
+    };
+
+    setDataSource('recorded_video');
+    setVideoReplayActive(true);
+    setVideoReplayConfig(replayCfg);
+
+    // Automatically start isolated comparison run on valid video analysis start
+    runComparison(replayCfg);
+  }, [useMock, vehicleManager, signalManager, clock, runComparison]);
+
+  const stopVideoDrivenSimulation = useCallback(() => {
+    setVideoReplayActive(false);
+    setDataSource('simulation');
+    ['N', 'S', 'E', 'W'].forEach(d => vehicleManager.setApproachSource(d, 'simulation'));
+  }, [vehicleManager]);
+
 
   const triggerEmergencyVehicle = useCallback((direction = null, type = null) => {
     if (!useMock) {
@@ -348,15 +511,24 @@ export const SimulationProvider = ({ children }) => {
     strategy,
     stagedStrategy: signalManager.stagedStrategy,
     dataSource,
+    videoReplayActive,
+    videoReplayConfig,
+    comparisonResult,
+    comparisonStatus,
+    comparisonError,
+    rerunComparison: useCallback(() => runComparison(null), [runComparison]),
     setStrategy,
     setDataSource,
     switchToMock,
     switchToBackend,
     setSpeed,
     resetSimulation,
+    startVideoDrivenSimulation,
+    stopVideoDrivenSimulation,
     manualOverride: handleManualOverride,
     triggerEmergencyVehicle
   };
+
 
   return (
     <SimulationContext.Provider value={value}>

@@ -35,6 +35,8 @@ import {
 } from 'lucide-react';
 import { useTrafficData } from '../utils/useTrafficData';
 import Loader from '../components/Loader';
+import { BenchmarkComparison } from '../components/BenchmarkComparison';
+
 
 const Analytics = ({ onNavigate }) => {
   const { 
@@ -44,7 +46,12 @@ const Analytics = ({ onNavigate }) => {
     loading, 
     simulationSpeed, 
     setSpeed, 
-    resetSimulation 
+    resetSimulation,
+    comparisonResult,
+    comparisonStatus,
+    comparisonError,
+    rerunComparison,
+    videoReplayActive
   } = useTrafficData();
 
   const [activeTab, setActiveTab] = useState('overview'); // 'overview' | 'charts' | 'environmental'
@@ -292,7 +299,11 @@ const Analytics = ({ onNavigate }) => {
 
       </div>
 
+      {/* ── Saved Benchmark Comparison Section (Phase 3B) ──────── */}
+      <BenchmarkComparison />
+
       {/* ── 3. Empty State Guard if No Traffic Generated Yet ────── */}
+
       {!hasData && (
         <div className="bg-white rounded-2xl border border-slate-200 p-10 text-center space-y-3">
           <div className="w-14 h-14 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center mx-auto text-2xl">
@@ -738,6 +749,17 @@ const Analytics = ({ onNavigate }) => {
 
         </div>
       )}
+
+      {/* Fixed 45s vs Adaptive Computed Benchmark Comparison (Always accessible) */}
+      <div className="mt-8">
+        <BenchmarkComparison 
+          data={comparisonResult} 
+          status={comparisonStatus} 
+          error={comparisonError}
+          onRerun={rerunComparison} 
+          isLiveRun={videoReplayActive} 
+        />
+      </div>
 
     </div>
   );

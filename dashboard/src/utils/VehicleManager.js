@@ -29,6 +29,7 @@ export class VehicleManager {
     this.emergencyCooldown = 0;
     this.carIdCounter = 1;
 
+    this.approachSources = { N: 'simulation', E: 'simulation', S: 'simulation', W: 'simulation' };
     this._queueHistory = [];
     this._completedWaitTimes = [];
     this._completedArrivals = [];
@@ -38,6 +39,64 @@ export class VehicleManager {
 
     this._initScheduleAndSimulation();
   }
+
+  setApproachSource(direction, source) {
+    if (['N', 'S', 'E', 'W'].includes(direction) && ['simulation', 'recorded_video'].includes(source)) {
+      this.approachSources[direction] = source;
+    }
+  }
+
+  getApproachSource(direction) {
+    return this.approachSources[direction] || 'simulation';
+  }
+
+  clearApproach(direction) {
+    if (!['N', 'S', 'E', 'W'].includes(direction)) return;
+    this.cars[direction] = [];
+    this.backlog[direction] = [];
+    this._completedArrivals = this._completedArrivals.filter(a => a.direction !== direction);
+  }
+
+  /**
+   * Inject a single deduplicated external arrival from recorded video analysis
+   */
+
+  injectExternalArrival(direction, event) {
+    if (!['N', 'S', 'E', 'W'].includes(direction)) return;
+    
+    const vType = event.vehicleType || 'car';
+    const speed = vType === 'bike' ? 7.5 : vType === 'bus' ? 4.5 : vType === 'truck' ? 4.0 : 6.0;
+    const vehId = event.eventId || `vid-${direction}-${this.carIdCounter++}`;
+
+    const newVeh = {
+      id: vehId,
+      position: 0,
+      speed,
+      type: vType,
+      waitTime: 0,
+      isStopped: false,
+      inIntersection: false,
+      isExternal: true
+    };
+
+    this._completedArrivals.push({
+      id: vehId,
+      direction,
+      type: vType,
+      timeSec: typeof event.videoTimeSec === 'number' ? event.videoTimeSec : this.sessionDurationSeconds
+    });
+
+    const sortedLane = this.cars[direction];
+    const rearCar = sortedLane.length > 0 ? sortedLane[sortedLane.length - 1] : null;
+
+    if (!rearCar || rearCar.position >= MIN_VEHICLE_GAP) {
+      this.cars[direction].push(newVeh);
+      this.cars[direction].sort((a, b) => b.position - a.position);
+    } else {
+      this.backlog[direction].push(newVeh);
+    }
+  }
+
 
   start() {
     return true;
@@ -264,6 +323,7 @@ export class VehicleManager {
     const deltaSec = typeof dt === 'number' && dt > 0 ? dt : 1.0;
     this.sessionDurationSeconds += deltaSec;
     const isEmergencyActive = !!(this.emergencyVehicle && this.emergencyVehicle.position < 100);
+    const stepDepartedCars = [];
 
     // 1. Process backlog wait times
     Object.keys(this.backlog).forEach(dir => {
@@ -280,6 +340,11 @@ export class VehicleManager {
     ) {
       const event = this.arrivalSchedule[this.nextArrivalIndex++];
       const direction = event.direction;
+
+      // Skip generated arrival if approach is set to recorded_video source
+      if (this.approachSources[direction] === 'recorded_video') {
+        continue;
+      }
 
       const newVeh = {
         id: event.id,
@@ -340,13 +405,16 @@ export class VehicleManager {
             this._completedWaitTimes.push(wt);
             if (this._completedWaitTimes.length > 300) this._completedWaitTimes.shift();
 
-            this._completedDepartures.push({
+            const depObj = {
               id: car.id,
               type: car.type || 'car',
               direction,
               delay: wt,
+              totalWaitTime: wt,
               exitTime: Date.now()
-            });
+            };
+            this._completedDepartures.push(depObj);
+            stepDepartedCars.push(depObj);
             if (this._completedDepartures.length > 500) {
               this._completedDepartures.shift();
             }
@@ -372,7 +440,6 @@ export class VehicleManager {
       this.cars[direction] = updatedCars.sort((a, b) => b.position - a.position);
 
       // Dequeue from backlog onto visible road (position = 0) as space opens
-      // Note: Transitioning from backlog onto visible road does NOT emit a new arrival event
       const sortedLane = this.cars[direction];
       const rearCar = sortedLane.length > 0 ? sortedLane[sortedLane.length - 1] : null;
 
@@ -412,13 +479,16 @@ export class VehicleManager {
 
         if (this.emergencyVehicle.position >= 100) {
           this.carsPassed++;
-          this._completedDepartures.push({
+          const depObj = {
             id: this.emergencyVehicle.id,
             type: this.emergencyVehicle.type || 'ambulance',
             direction: emgApp,
             delay: this.emergencyVehicle.waitTime || 0,
+            totalWaitTime: this.emergencyVehicle.waitTime || 0,
             exitTime: Date.now()
-          });
+          };
+          this._completedDepartures.push(depObj);
+          stepDepartedCars.push(depObj);
           this.emergencyVehicle = null;
         }
       } else {
@@ -465,6 +535,8 @@ export class VehicleManager {
         throughput: this.calculateThroughput()
       }
     ];
+
+    return { departedCars: stepDepartedCars };
   }
 
   triggerEmergency(direction) {

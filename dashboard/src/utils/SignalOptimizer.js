@@ -8,7 +8,7 @@ import { TRAFFIC_CONSTANTS } from './constants.js';
 export class SignalOptimizer {
   static calculateGreenDuration(approach, queuedPCU = 0, strategy = 'adaptive', policy = TRAFFIC_CONSTANTS.SIGNAL_POLICY) {
     if (strategy === 'fixed') {
-      return policy.FIXED_DURATIONS[approach] || 30;
+      return (policy.FIXED_DURATIONS && policy.FIXED_DURATIONS[approach]) || 45;
     }
 
     const base = policy.BASE_GREEN || 10;
@@ -33,7 +33,7 @@ export class SignalOptimizer {
       const currentIndex = signalSequence.indexOf(currentSignal);
       const nextIndex = (currentIndex + 1) % signalSequence.length;
       const nextSignal = signalSequence[nextIndex];
-      const proposedGreen = policy.FIXED_DURATIONS[nextSignal] || 30;
+      const proposedGreen = (policy.FIXED_DURATIONS && policy.FIXED_DURATIONS[nextSignal]) || 45;
 
       return {
         nextSignal,

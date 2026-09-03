@@ -28,22 +28,22 @@ export function runIntegrationTests() {
 
   // --- Test 2: Fixed durations complete correctly ---
   {
-    const sm = new SignalManager();
+    const sm = new SignalManager('fixed');
     sm.setStrategy('fixed');
-    for (let i = 0; i < 290; i++) {
+    for (let i = 0; i < 440; i++) {
       sm.updateSignal({}, {}, {}, {}, 0.1, false);
     }
     assert(
       sm.phase === 'GREEN' && sm.currentSignal === 'N',
-      'Test 2a: Fixed mode remains GREEN for North before 30s duration completes'
+      'Test 2a: Fixed mode remains GREEN for North before 45s duration completes'
     );
 
-    for (let i = 0; i < 15; i++) {
+    for (let i = 15; i < 30; i++) {
       sm.updateSignal({}, {}, {}, {}, 0.1, false);
     }
     assert(
       sm.phase === 'YELLOW' && sm.pendingSignal === 'E',
-      'Test 2b: Fixed mode enters YELLOW clearance and selects E after 30s'
+      'Test 2b: Fixed mode enters YELLOW clearance and selects E after 45s'
     );
   }
 
@@ -383,5 +383,62 @@ export function runIntegrationTests() {
     );
   }
 
+  // --- Test 14: Phase 2 External Video Arrival Injection & Approach Suppression Test ---
+  {
+    const vm = new VehicleManager(888);
+    vm.setApproachSource('S', 'recorded_video');
+
+    assert(
+      vm.getApproachSource('S') === 'recorded_video' && vm.getApproachSource('N') === 'simulation',
+      'Test 14a: Approach S source set to recorded_video while N remains simulation'
+    );
+
+    // Initial vehicle count in S
+    const initialSCount = vm.cars.S.length;
+
+    // Inject 1 external arrival event from video analysis
+    vm.injectExternalArrival('S', {
+      eventId: 'evt-vid-test-1',
+      videoTimeSec: 5.2,
+      trackId: 42,
+      vehicleType: 'car',
+      mappedDirection: 'S'
+    });
+
+    const vStateAfter = vm.getState();
+    assert(
+      vStateAfter.queues.S >= initialSCount + 1,
+      'Test 14b: Injected video arrival entered simulated queue on approach S'
+    );
+
+    const arrivals = vm.getCompletedArrivals();
+    const injectedInArrivals = arrivals.some(a => a.id === 'evt-vid-test-1');
+    assert(
+      injectedInArrivals,
+      'Test 14c: Injected video arrival logged cleanly in completed arrivals list'
+    );
+  }
+
+  const failed = results.filter(r => !r.pass);
+  if (failed.length > 0) {
+    console.error(`❌ ${failed.length} SIGNAL CONTROLLER INTEGRATION TESTS FAILED:`);
+    failed.forEach(f => console.error(`  - ${f.message}`));
+    throw new Error(`${failed.length} Signal Controller tests failed.`);
+  }
+
   return results;
 }
+
+export const runSignalControllerTests = runIntegrationTests;
+
+// Auto-run if executed directly via Node
+if (process.argv[1] && process.argv[1].includes('signalController.test.js')) {
+  try {
+    const res = runIntegrationTests();
+    console.log(`✅ ALL ${res.length} SIGNAL CONTROLLER INTEGRATION TESTS PASSED!`);
+  } catch (err) {
+    console.error('SIGNAL CONTROLLER TESTS FAILED:', err);
+    process.exit(1);
+  }
+}
+

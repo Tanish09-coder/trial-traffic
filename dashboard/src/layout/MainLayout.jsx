@@ -41,9 +41,11 @@ const MainLayout = ({ children, currentPage = 'dashboard', onNavigate }) => {
   const navItems = [
     { id: 'dashboard', label: 'Dashboard', icon: '📊', desc: 'System Overview & Analytics' },
     { id: 'live-intersection', label: 'Live Intersection', icon: '🚦', desc: 'Real-time Simulation & Overrides' },
+    { id: 'traffic-intelligence', label: 'Traffic Intelligence', icon: '📹', desc: 'Video Vehicle Detection & Tracking' },
     { id: 'analytics', label: 'Analytics', icon: '📈', desc: 'Efficiency & Sustainability Metrics' },
     { id: 'about', label: 'About', icon: 'ℹ️', desc: 'Architecture & Features' }
   ];
+
 
   const activeItem = navItems.find(item => item.id === currentPage) || navItems[0];
 

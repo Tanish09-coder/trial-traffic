@@ -3,6 +3,8 @@ const cors = require('cors');
 const dotenv = require('dotenv');
 const { PythonShell } = require('python-shell');
 
+const videoRoutes = require('./routes/videoRoutes');
+
 dotenv.config();
 
 const app = express();
@@ -10,6 +12,10 @@ const PORT = process.env.PORT || 5000;
 
 app.use(cors());
 app.use(express.json());
+
+// Mount Video Intelligence routes
+app.use('/api/video', videoRoutes);
+
 
 // Initialize Python simulation
 let pyshell = null;

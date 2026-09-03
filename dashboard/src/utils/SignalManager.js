@@ -2,19 +2,25 @@ import { TRAFFIC_CONSTANTS } from './constants.js';
 import { SignalOptimizer } from './SignalOptimizer.js';
 
 export class SignalManager {
-  constructor() {
+  constructor(initialStrategy = 'adaptive') {
     this.currentSignal = 'N';
     this.signalTimer = 0;
-    this.signalDuration = 30; // backward-compatibility alias for activeGreenDuration
-    this.activeGreenDuration = 30;
-    this.pendingGreenDuration = 30;
-
+    
     this.currentSignalIndex = 0;
     this.signalSequence = ['N', 'E', 'S', 'W'];
     
     // Strategy & Phase Controller
-    this.strategy = 'adaptive';       // Active strategy: 'adaptive' | 'fixed'
-    this.stagedStrategy = 'adaptive'; // Staged strategy to apply at next phase boundary
+    this.strategy = initialStrategy;       // Active strategy: 'adaptive' | 'fixed'
+    this.stagedStrategy = initialStrategy; // Staged strategy to apply at next phase boundary
+
+    const initialDuration = this.strategy === 'fixed'
+      ? (TRAFFIC_CONSTANTS.SIGNAL_POLICY?.FIXED_DURATIONS?.N || 45)
+      : 30;
+
+    this.signalDuration = initialDuration;
+    this.activeGreenDuration = initialDuration;
+    this.pendingGreenDuration = initialDuration;
+
     this.phase = 'GREEN';             // 'GREEN' | 'YELLOW' | 'ALL_RED'
     this.phaseTimer = 0;              // seconds in current phase
     this.pendingSignal = 'N';          // signal to switch to after clearance
@@ -37,9 +43,9 @@ export class SignalManager {
     // Latest decision record
     this.latestDecision = {
       selectedDirection: 'N',
-      strategy: 'adaptive',
-      proposedGreen: 30,
-      activeGreen: 30,
+      strategy: this.strategy,
+      proposedGreen: initialDuration,
+      activeGreen: initialDuration,
       reason: 'Initial signal cycle',
       queuedPCUs: { N: 0, S: 0, E: 0, W: 0 },
       stoppedCounts: { N: 0, S: 0, E: 0, W: 0 },
@@ -354,9 +360,14 @@ export class SignalManager {
     this.phase = 'GREEN';
     this.phaseTimer = 0;
     this.signalTimer = 0;
-    this.activeGreenDuration = 30;
-    this.pendingGreenDuration = 30;
-    this.signalDuration = 30;
+
+    const initialDuration = this.strategy === 'fixed'
+      ? (TRAFFIC_CONSTANTS.SIGNAL_POLICY?.FIXED_DURATIONS?.N || 45)
+      : 30;
+
+    this.activeGreenDuration = initialDuration;
+    this.pendingGreenDuration = initialDuration;
+    this.signalDuration = initialDuration;
     this.currentSignalIndex = 0;
     this.continuousGreenTimeSec = 0;
     this.isExtendedClearance = false;
@@ -368,8 +379,8 @@ export class SignalManager {
     this.latestDecision = {
       selectedDirection: 'N',
       strategy: this.strategy,
-      proposedGreen: 30,
-      activeGreen: 30,
+      proposedGreen: initialDuration,
+      activeGreen: initialDuration,
       reason: 'Session reset',
       queuedPCUs: { N: 0, S: 0, E: 0, W: 0 },
       stoppedCounts: { N: 0, S: 0, E: 0, W: 0 },
