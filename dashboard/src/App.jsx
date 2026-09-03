@@ -1,4 +1,5 @@
-﻿import { useState } from 'react';
+import { useState } from 'react';
+import { SimulationProvider } from './context/SimulationContext';
 import MainLayout from './layout/MainLayout';
 import Dashboard from './pages/Dashboard';
 import LiveIntersection from './pages/LiveIntersection';
@@ -11,7 +12,7 @@ function App() {
   const [currentPage, setCurrentPage] = useState('dashboard');
 
   return (
-    <>
+    <SimulationProvider>
       <MainLayout currentPage={currentPage} onNavigate={setCurrentPage}>
         {currentPage === 'dashboard' && <Dashboard onNavigate={setCurrentPage} />}
         {currentPage === 'live-intersection' && <LiveIntersection onNavigate={setCurrentPage} />}
@@ -19,7 +20,7 @@ function App() {
         {currentPage === 'about' && <About onNavigate={setCurrentPage} />}
       </MainLayout>
       <SoundToggle />
-    </>
+    </SimulationProvider>
   );
 }
 

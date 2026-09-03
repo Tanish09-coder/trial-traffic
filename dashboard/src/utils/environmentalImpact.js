@@ -1,4 +1,4 @@
-import { TRAFFIC_CONSTANTS } from './constants';
+import { TRAFFIC_CONSTANTS } from './constants.js';
 
 /**
  * Centralized, authoritative calculation for Environmental & Commuter Economic Impact.

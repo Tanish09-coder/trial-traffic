@@ -3,17 +3,17 @@
  * 
  * Single Source of Truth for Simulation Session Analytics.
  * Observes the running traffic simulation and records ONLY genuine events:
- * - Vehicle creation & type classification
+ * - Vehicle creation & type classification (including backlog arrivals)
  * - Lane arrivals and throughput
  * - Exact waiting time per vehicle
- * - Real signal phase time distribution
+ * - Real signal phase time distribution (GREEN, YELLOW, ALL_RED tracked separately)
  * - Emergency vehicle priority events
  * - Queue depth snapshots over time
  * - Environmental and commuter economic impact calculation via calculateEnvironmentalImpact
  */
 
-import { calculateEnvironmentalImpact } from './environmentalImpact';
-import { TRAFFIC_CONSTANTS } from './constants';
+import { calculateEnvironmentalImpact } from './environmentalImpact.js';
+import { TRAFFIC_CONSTANTS } from './constants.js';
 
 export class AnalyticsManager {
   constructor() {
@@ -23,7 +23,6 @@ export class AnalyticsManager {
   reset() {
     this.sessionId = `SIM-${Date.now().toString(36).toUpperCase()}`;
     this.sessionStartTime = Date.now();
-    this.lastTickTime = Date.now();
     this.sessionDurationSeconds = 0;
     this.eventCount = 0;
     this.isRunning = false;
@@ -39,6 +38,7 @@ export class AnalyticsManager {
       car: 0,
       bike: 0,
       bus: 0,
+      truck: 0,
       ambulance: 0,
       firetruck: 0,
       police: 0
@@ -51,7 +51,6 @@ export class AnalyticsManager {
     // Wait time records (measured in simulation seconds/ticks)
     this.completedWaitTimes = [];
     this.totalWaitTimeSum = 0;
-    this.lastMeasuredDelay = 30.0;
 
     // Peak traffic records
     this.peakActiveVehicles = 0;
@@ -60,6 +59,8 @@ export class AnalyticsManager {
 
     // Signal state tracking (seconds spent in each phase)
     this.signalPhaseSeconds = { N: 0, S: 0, E: 0, W: 0 };
+    this.signalPhaseYellowSeconds = 0;
+    this.signalPhaseAllRedSeconds = 0;
     this.signalSwitchCount = 0;
     this.lastObservedSignal = null;
 
@@ -81,13 +82,12 @@ export class AnalyticsManager {
   _resolveType(car) {
     if (!car) return 'car';
     const type = (car.type || '').toLowerCase();
-    if (['ambulance', 'firetruck', 'police', 'bus', 'bike', 'car'].includes(type)) {
+    if (['ambulance', 'firetruck', 'police', 'bus', 'bike', 'truck', 'car'].includes(type)) {
       return type;
     }
     if (type === 'emergency') {
       return 'ambulance';
     }
-    // Deterministic hash lookup based on ID if unspecified
     const idStr = String(car.id || '');
     let hash = 0;
     for (let i = 0; i < idStr.length; i++) {
@@ -96,48 +96,67 @@ export class AnalyticsManager {
     }
     const mod = Math.abs(hash) % 10;
     if (mod === 0 || mod === 5) return 'bus';
+    if (mod === 3 || mod === 7) return 'truck';
     if (mod === 1 || mod === 2 || mod === 6) return 'bike';
     return 'car';
   }
 
   /**
    * Main observer method called on each simulation tick.
-   * 
-   * @param {Object} state - Live state from VehicleManager & SignalManager
-   * @param {Object} metrics - Calculated metrics
-   * @param {number} simulationSpeed - Current speed multiplier
+   * Consumes explicit arrival and departure events exactly once using simulation time.
    */
-  recordTick(state, metrics, simulationSpeed = 1) {
-    if (!state) return;
+  recordTick(data, metrics, simulationSpeed = 1) {
+    if (!data) return;
 
-    this.isRunning = simulationSpeed > 0;
-    this.tickCounter++;
-    this.lastTickTime = Date.now();
-    this.sessionDurationSeconds = Math.max(1, Math.floor((this.lastTickTime - this.sessionStartTime) / 1000));
+    let dt = 1.0;
+    let arrivals = [];
+    let departures = [];
+    let currentSignal = 'N';
+    let phase = 'GREEN';
+    let isEmergencyActive = false;
 
-    const carsByLane = state.cars || { N: [], S: [], E: [], W: [] };
-    const queues = state.queues || { N: 0, S: 0, E: 0, W: 0 };
-    const currentSignal = state.signal || 'N';
-    const isEmergencyActive = !!state.emergencyActive;
-
-    if (typeof state.avg_wait_time === 'number' && state.avg_wait_time > 0) {
-      this.lastMeasuredDelay = state.avg_wait_time;
-    } else if (typeof metrics?.current_avg_wait_time === 'number' && metrics.current_avg_wait_time > 0) {
-      this.lastMeasuredDelay = metrics.current_avg_wait_time;
+    if (typeof data.dt === 'number') {
+      dt = data.dt;
+      arrivals = data.arrivals || [];
+      departures = data.departures || [];
+      currentSignal = data.currentSignal || 'N';
+      phase = data.phase || 'GREEN';
+      isEmergencyActive = !!data.emergencyActive;
+    } else {
+      currentSignal = data.signal || 'N';
+      phase = data.phase || 'GREEN';
+      isEmergencyActive = !!data.emergencyActive;
+      arrivals = data.arrivals || [];
+      departures = data.departures || [];
     }
 
-    // 1. Inspect all active cars in the simulation
-    let currentActiveCount = 0;
-    const currentActiveIds = new Set();
+    this.isRunning = true;
+    this.tickCounter++;
+    this.sessionDurationSeconds += dt;
 
+    // 1. Process explicit arrival events (including initial cars & backlog arrivals) exactly once
+    arrivals.forEach(arr => {
+      if (arr && arr.id && !this.seenCarIds.has(arr.id)) {
+        this.seenCarIds.add(arr.id);
+        this.totalGenerated++;
+        this.eventCount++;
+        const dir = arr.direction || 'N';
+        this.laneArrivals[dir] = (this.laneArrivals[dir] || 0) + 1;
+
+        const resolvedType = this._resolveType(arr);
+        this.vehicleTypeCounts[resolvedType] = (this.vehicleTypeCounts[resolvedType] || 0) + 1;
+
+        if (['ambulance', 'firetruck', 'police', 'emergency'].includes(arr.type)) {
+          this.emergencyCount++;
+        }
+      }
+    });
+
+    // Also inspect active cars array for fallback arrival tracking if arrivals list was empty
+    const carsByLane = data.cars || {};
     Object.entries(carsByLane).forEach(([lane, cars]) => {
       if (!Array.isArray(cars)) return;
-
       cars.forEach(car => {
-        currentActiveCount++;
-        currentActiveIds.add(car.id);
-
-        // If newly generated car not seen before
         if (!this.seenCarIds.has(car.id)) {
           this.seenCarIds.add(car.id);
           this.totalGenerated++;
@@ -151,52 +170,46 @@ export class AnalyticsManager {
             this.emergencyCount++;
           }
         }
-
-        // If car has reached exit threshold
-        if (car.position >= 96 && !this.processedCarIds.has(car.id)) {
-          this.processedCarIds.add(car.id);
-          this.totalProcessed++;
-          this.eventCount++;
-          this.laneProcessed[lane] = (this.laneProcessed[lane] || 0) + 1;
-
-          const wait = typeof car.waitTime === 'number' ? car.waitTime : 0;
-          this.completedWaitTimes = [...this.completedWaitTimes, wait];
-          this.totalWaitTimeSum += wait;
-        }
       });
     });
 
-    // Authoritative sync: sync processed count with state.cars_passed
-    if (typeof state.cars_passed === 'number' && state.cars_passed > this.totalProcessed) {
-      const delta = state.cars_passed - this.totalProcessed;
-      this.totalProcessed = state.cars_passed;
-      this.eventCount += delta;
-      
-      // If cars were passed internally by VehicleManager before position check
-      if (this.completedWaitTimes.length === 0) {
-        const estWait = this.lastMeasuredDelay || 30.0;
-        this.completedWaitTimes = [...this.completedWaitTimes, estWait];
-        this.totalWaitTimeSum += estWait * delta;
+    // 2. Process departure events exactly once
+    departures.forEach(dep => {
+      if (dep && dep.id && !this.processedCarIds.has(dep.id)) {
+        this.processedCarIds.add(dep.id);
+        this.totalProcessed++;
+        this.eventCount++;
+        const dir = dep.direction || 'N';
+        this.laneProcessed[dir] = (this.laneProcessed[dir] || 0) + 1;
+
+        const delay = typeof dep.delay === 'number' ? dep.delay : 0;
+        this.completedWaitTimes.push(delay);
+        this.totalWaitTimeSum += delay;
       }
-    }
+    });
 
-    if (this.totalProcessed > this.totalGenerated) {
-      this.totalGenerated = this.totalProcessed + currentActiveCount;
-    }
+    const currentActiveCount = Math.max(0, this.totalGenerated - this.totalProcessed);
 
-    // 2. Track Peak Traffic
+    // Track Peak Traffic
     if (currentActiveCount > this.peakActiveVehicles) {
       this.peakActiveVehicles = currentActiveCount;
     }
 
+    const queues = data.stoppedQueues || data.queues || { N: 0, S: 0, E: 0, W: 0 };
     const currentTotalQueue = (queues.N || 0) + (queues.S || 0) + (queues.E || 0) + (queues.W || 0);
     if (currentTotalQueue > this.peakQueueLength) {
       this.peakQueueLength = currentTotalQueue;
     }
 
-    // 3. Track Signal Phase Duration (simulation tick accumulation)
-    if (['N', 'S', 'E', 'W'].includes(currentSignal)) {
-      this.signalPhaseSeconds[currentSignal] = (this.signalPhaseSeconds[currentSignal] || 0) + 1;
+    // Track Signal Phase Duration strictly by phase (GREEN only for direction, YELLOW/ALL_RED separately)
+    if (phase === 'GREEN') {
+      if (['N', 'S', 'E', 'W'].includes(currentSignal)) {
+        this.signalPhaseSeconds[currentSignal] = (this.signalPhaseSeconds[currentSignal] || 0) + dt;
+      }
+    } else if (phase === 'YELLOW') {
+      this.signalPhaseYellowSeconds += dt;
+    } else if (phase === 'ALL_RED') {
+      this.signalPhaseAllRedSeconds += dt;
     }
 
     if (this.lastObservedSignal && this.lastObservedSignal !== currentSignal) {
@@ -205,20 +218,17 @@ export class AnalyticsManager {
     }
     this.lastObservedSignal = currentSignal;
 
-    // 4. Track Emergency Activations
+    // Track Emergency Activations
     if (isEmergencyActive && !this.lastEmergencyActive) {
       this.emergencyPreemptions++;
       this.eventCount++;
-      this.emergencyEvents = [
-        ...this.emergencyEvents,
-        {
-          id: `EMG-${Date.now().toString().slice(-4)}`,
-          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
-          direction: state.emergencyDirection || currentSignal,
-          vehicleType: 'Emergency Vehicle',
-          resolved: false
-        }
-      ];
+      this.emergencyEvents.push({
+        id: `EMG-${Date.now().toString().slice(-4)}`,
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+        direction: data.emergencyDirection || currentSignal,
+        vehicleType: 'Emergency Vehicle',
+        resolved: false
+      });
     } else if (!isEmergencyActive && this.lastEmergencyActive && this.emergencyEvents.length > 0) {
       const lastEmg = this.emergencyEvents[this.emergencyEvents.length - 1];
       if (lastEmg && !lastEmg.resolved) {
@@ -227,15 +237,13 @@ export class AnalyticsManager {
     }
     this.lastEmergencyActive = isEmergencyActive;
 
-    // 5. Record Periodic Time-Series Snapshots (every ~2 ticks)
+    // Record Periodic Time-Series Snapshots
     if (this.tickCounter - this.lastSnapshotTick >= 2 || this.timeSeries.length === 0) {
       this.lastSnapshotTick = this.tickCounter;
 
-      const now = new Date();
-      const timeLabel = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-      
+      const timeLabel = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
       const currentThroughput = this.sessionDurationSeconds > 0
-        ? Number(((this.totalProcessed / this.sessionDurationSeconds) * 60).toFixed(1))
+        ? Math.round((this.totalProcessed / this.sessionDurationSeconds) * 60)
         : 0;
 
       if (currentThroughput > this.peakThroughput) {
@@ -244,26 +252,28 @@ export class AnalyticsManager {
 
       const avgWaitSoFar = this.completedWaitTimes.length > 0
         ? Number((this.totalWaitTimeSum / this.completedWaitTimes.length).toFixed(1))
-        : (this.lastMeasuredDelay ? Number(this.lastMeasuredDelay.toFixed(1)) : 30.0);
+        : null;
 
-      this.timeSeries = [
-        ...this.timeSeries.slice(-39),
-        {
-          time: timeLabel,
-          tick: this.tickCounter,
-          activeVehicles: currentActiveCount,
-          processedVehicles: this.totalProcessed,
-          throughput: currentThroughput,
-          avgWaitTime: avgWaitSoFar,
-          totalQueue: currentTotalQueue,
-          queueN: queues.N || 0,
-          queueS: queues.S || 0,
-          queueE: queues.E || 0,
-          queueW: queues.W || 0,
-          signal: currentSignal,
-          isEmergency: isEmergencyActive
-        }
-      ];
+      this.timeSeries.push({
+        time: timeLabel,
+        tick: this.tickCounter,
+        activeVehicles: currentActiveCount,
+        processedVehicles: this.totalProcessed,
+        throughput: currentThroughput,
+        avgWaitTime: avgWaitSoFar,
+        totalQueue: currentTotalQueue,
+        queueN: queues.N || 0,
+        queueS: queues.S || 0,
+        queueE: queues.E || 0,
+        queueW: queues.W || 0,
+        signal: currentSignal,
+        phase: phase,
+        isEmergency: isEmergencyActive
+      });
+
+      if (this.timeSeries.length > 40) {
+        this.timeSeries.shift();
+      }
     }
   }
 
@@ -272,18 +282,21 @@ export class AnalyticsManager {
    */
   getSnapshot() {
     const totalRecordedWait = this.completedWaitTimes.length;
-    const avgWaitTime = totalRecordedWait > 0
+    const hasWaitTimeData = totalRecordedWait > 0;
+    const avgWaitTime = hasWaitTimeData
       ? Number((this.totalWaitTimeSum / totalRecordedWait).toFixed(1))
-      : (this.lastMeasuredDelay ? Number(this.lastMeasuredDelay.toFixed(1)) : 30.0);
+      : null;
 
     const currentThroughput = this.sessionDurationSeconds > 0
-      ? Number(((this.totalProcessed / this.sessionDurationSeconds) * 60).toFixed(1))
+      ? Math.round((this.totalProcessed / this.sessionDurationSeconds) * 60)
       : 0;
+
+    const activeVehiclesCount = Math.max(0, this.totalGenerated - this.totalProcessed);
 
     // Authoritative Environmental & Commuter Economic Impact Calculation
     const sustainability = calculateEnvironmentalImpact(
       this.totalProcessed,
-      avgWaitTime,
+      avgWaitTime || 0,
       TRAFFIC_CONSTANTS.TRADITIONAL_WAIT_TIME
     );
 
@@ -295,17 +308,19 @@ export class AnalyticsManager {
           car: 'Passenger Car',
           bike: 'Two-Wheeler / Bike',
           bus: 'Heavy Bus',
+          truck: 'Heavy Truck',
           ambulance: 'Ambulance',
           firetruck: 'Fire Engine',
           police: 'Police Patrol'
         };
         const colors = {
-          car: '#2563EB',       // Vibrant Royal Blue
-          bike: '#059669',      // Rich Emerald Green
-          bus: '#D97706',       // Deep Warm Amber
-          ambulance: '#DC2626', // High-Contrast Crimson Red
-          firetruck: '#EA580C', // Blaze Orange
-          police: '#7C3AED'     // Rich Violet
+          car: '#2563EB',
+          bike: '#059669',
+          bus: '#D97706',
+          truck: '#475569',
+          ambulance: '#DC2626',
+          firetruck: '#EA580C',
+          police: '#7C3AED'
         };
         return {
           name: labels[type] || type,
@@ -337,13 +352,13 @@ export class AnalyticsManager {
     // Prepare Signal Phase Distribution
     const totalSignalSeconds = Object.values(this.signalPhaseSeconds).reduce((a, b) => a + b, 0);
     const signalStateData = ['N', 'S', 'E', 'W'].map(dir => {
-      const seconds = this.signalPhaseSeconds[dir] || 0;
+      const seconds = Math.round(this.signalPhaseSeconds[dir] || 0);
       const pct = totalSignalSeconds > 0 ? Number(((seconds / totalSignalSeconds) * 100).toFixed(1)) : 0;
       const colors = { 
-        N: '#2563EB', // Vibrant Royal Blue (North Secondary)
-        S: '#059669', // Rich Emerald Green (South Artery)
-        E: '#D97706', // Warm Amber (East Side)
-        W: '#7C3AED'  // Rich Purple (West Expressway)
+        N: '#2563EB',
+        S: '#059669',
+        E: '#D97706',
+        W: '#7C3AED'
       };
       return {
         name: `Phase ${dir} (Green)`,
@@ -357,18 +372,18 @@ export class AnalyticsManager {
     return {
       sessionId: this.sessionId,
       sessionStartTime: this.sessionStartTime,
-      sessionDurationSeconds: this.sessionDurationSeconds,
+      sessionDurationSeconds: Math.round(this.sessionDurationSeconds),
       eventCount: this.eventCount,
       isRunning: this.isRunning,
 
       // Core KPI counters
       totalVehicles: this.totalGenerated,
       vehiclesProcessed: this.totalProcessed,
-      activeVehicles: Math.max(0, this.totalGenerated - this.totalProcessed),
+      activeVehicles: activeVehiclesCount,
       emergencyVehicles: this.emergencyCount,
       emergencyPreemptions: this.emergencyPreemptions,
       averageWaitTime: avgWaitTime,
-      hasWaitTimeData: this.totalProcessed > 0 || totalRecordedWait > 0,
+      hasWaitTimeData,
       peakActiveVehicles: this.peakActiveVehicles,
       peakQueueLength: this.peakQueueLength,
       peakThroughput: this.peakThroughput,
@@ -378,7 +393,9 @@ export class AnalyticsManager {
       vehicleTypeData,
       laneData,
       signalStateData,
-      totalSignalSeconds,
+      totalSignalSeconds: Math.round(totalSignalSeconds),
+      signalPhaseYellowSeconds: Math.round(this.signalPhaseYellowSeconds),
+      signalPhaseAllRedSeconds: Math.round(this.signalPhaseAllRedSeconds),
       signalSwitchCount: this.signalSwitchCount,
 
       // Time Series

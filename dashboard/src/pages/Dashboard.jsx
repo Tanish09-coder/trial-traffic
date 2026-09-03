@@ -5,6 +5,7 @@ import { useTrafficData } from '../utils/useTrafficData';
 import Car from '../components/car';
 import TrafficLight from '../components/TrafficLight';
 import PedestrianLight from '../components/PedestrianLight';
+import AIDecisionPanel from '../components/AIDecisionPanel';
 import StatCard from '../components/StatCard';
 import ChartPanel from '../components/ChartPanel';
 import Loader from '../components/Loader';
@@ -192,6 +193,11 @@ const Dashboard = () => {
           />
         </div>
 
+        {/* Strategy & Decision Panel */}
+        <div className="mb-6">
+          <AIDecisionPanel />
+        </div>
+
         {/* Main Dashboard */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           
@@ -203,26 +209,19 @@ const Dashboard = () => {
                   Live Intersection View
                 </h2>
                 <div className="flex flex-wrap items-center gap-2 sm:gap-2.5">
-                  <div className={`px-3 py-1 rounded-full text-xs sm:text-sm font-medium ${
-                    state?.signal === 'N' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'
-                  }`}>
-                    North: {state?.signal === 'N' ? 'OPEN' : 'CLOSED'}
-                  </div>
-                  <div className={`px-3 py-1 rounded-full text-xs sm:text-sm font-medium ${
-                    state?.signal === 'S' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'
-                  }`}>
-                    South: {state?.signal === 'S' ? 'OPEN' : 'CLOSED'}
-                  </div>
-                  <div className={`px-3 py-1 rounded-full text-xs sm:text-sm font-medium ${
-                    state?.signal === 'E' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'
-                  }`}>
-                    East: {state?.signal === 'E' ? 'OPEN' : 'CLOSED'}
-                  </div>
-                  <div className={`px-3 py-1 rounded-full text-xs sm:text-sm font-medium ${
-                    state?.signal === 'W' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'
-                  }`}>
-                    West: {state?.signal === 'W' ? 'OPEN' : 'CLOSED'}
-                  </div>
+                  {['N', 'S', 'E', 'W'].map(dir => {
+                    const dirNames = { N: 'North', S: 'South', E: 'East', W: 'West' };
+                    const isGreen = state?.signal === dir && state?.phase === 'GREEN';
+                    const isYellow = state?.signal === dir && state?.phase === 'YELLOW';
+                    const isAllRed = state?.phase === 'ALL_RED';
+                    const label = isGreen ? 'OPEN' : (isYellow || isAllRed) ? 'CLEARING' : 'CLOSED';
+                    const cls = isGreen ? 'bg-green-100 text-green-800' : (isYellow || isAllRed) ? 'bg-amber-100 text-amber-800 border border-amber-300' : 'bg-gray-100 text-gray-600';
+                    return (
+                      <div key={dir} className={`px-3 py-1 rounded-full text-xs sm:text-sm font-medium ${cls}`}>
+                        {dirNames[dir]}: {label}
+                      </div>
+                    );
+                  })}
                   <button
                     onClick={toggleFullscreen}
                     className="p-1.5 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-600 hover:text-gray-800 transition-colors ml-0.5 shrink-0"
@@ -417,24 +416,28 @@ const Dashboard = () => {
                 <TrafficLight 
                   direction="N" 
                   signal={state?.signal}
+                  phase={state?.phase}
                   emergencyActive={state?.emergencyActive && state?.emergencyDirection === 'N'}
                   isFullscreen={isFullscreen}
                 />
                 <TrafficLight 
                   direction="S" 
                   signal={state?.signal}
+                  phase={state?.phase}
                   emergencyActive={state?.emergencyActive && state?.emergencyDirection === 'S'}
                   isFullscreen={isFullscreen}
                 />
                 <TrafficLight 
                   direction="E" 
                   signal={state?.signal}
+                  phase={state?.phase}
                   emergencyActive={state?.emergencyActive && state?.emergencyDirection === 'E'}
                   isFullscreen={isFullscreen}
                 />
                 <TrafficLight 
                   direction="W" 
                   signal={state?.signal}
+                  phase={state?.phase}
                   emergencyActive={state?.emergencyActive && state?.emergencyDirection === 'W'}
                   isFullscreen={isFullscreen}
                 />
@@ -476,7 +479,7 @@ const Dashboard = () => {
                   <div className="absolute bottom-6 left-1/2 transform -translate-x-1/2 flex items-center gap-3 z-50 select-none">
                     <div className="bg-gray-900/90 backdrop-blur-md border border-gray-700 text-white px-5 py-2.5 rounded-xl shadow-2xl">
                       <span className="text-sm font-semibold">
-                        Current: {state?.signal} | Next change in: {Math.max(0, (state?.signal_duration || 30) - (state?.signal_timer || 0))}s
+                        Current: {state?.signal} ({state?.phase || 'GREEN'}) | {state?.clearance_status ? state.clearance_status : `${state?.phase_label || 'Remaining'}: ${state?.phase_remaining_sec ?? 0}s`}
                       </span>
                     </div>
 
@@ -522,11 +525,11 @@ const Dashboard = () => {
               </div>
 
               {/* Signal Timer & Emergency Mode Button */}
-              {state?.signal_timer !== undefined && (
+              {state?.phase_remaining_sec !== undefined && (
                 <div className="mt-4 flex flex-wrap items-center justify-center gap-3">
                   <div className="bg-gray-800 text-white px-4 py-2 rounded-lg shadow-sm">
                     <span className="text-sm font-medium">
-                      Current: {state.signal} | Next change in: {Math.max(0, state.signal_duration - state.signal_timer)}s
+                      Current: {state.signal} ({state.phase || 'GREEN'}) | {state.clearance_status ? state.clearance_status : `${state.phase_label || 'Remaining'}: ${state.phase_remaining_sec}s`}
                     </span>
                   </div>
                   <button

@@ -4,6 +4,7 @@ import { useTrafficData } from '../utils/useTrafficData';
 import Car from '../components/car';
 import TrafficLight from '../components/TrafficLight';
 import PedestrianLight from '../components/PedestrianLight';
+import AIDecisionPanel from '../components/AIDecisionPanel';
 import Loader from '../components/Loader';
 
 const LiveIntersection = () => {
@@ -448,6 +449,11 @@ const LiveIntersection = () => {
           </div>
         </div>
 
+        {/* Strategy & AI Decision Panel */}
+        <div className="mb-8">
+          <AIDecisionPanel />
+        </div>
+
         {/* Manual Override Control Buttons - FIXED SECTION */}
         <div className="mb-8 bg-white rounded-lg shadow-lg p-6 border-l-4 border-red-500">
           <div className="flex justify-between items-center mb-4">
@@ -606,7 +612,7 @@ const LiveIntersection = () => {
                 ? 'bg-red-100 text-red-800' 
                 : 'bg-blue-100 text-blue-800'
             }`}>
-              {overrideActive ? 'Manual Control' : 'Smart Signal'}: {state?.signal} ({state?.signal_duration - (state?.signal_timer || 0)}s remaining)
+              {overrideActive ? 'Manual Control' : 'Smart Signal'}: {state?.signal} ({state?.phase || 'GREEN'}) | {state?.clearance_status ? state.clearance_status : `${state?.phase_label || 'Remaining'}: ${state?.phase_remaining_sec ?? 0}s`}
             </div>
           </div>
 
@@ -751,21 +757,25 @@ const LiveIntersection = () => {
             <TrafficLight 
               direction="N" 
               signal={state?.signal}
+              phase={state?.phase}
               emergencyActive={state?.emergencyActive && state?.emergencyDirection === 'N'}
             />
             <TrafficLight 
               direction="S" 
               signal={state?.signal}
+              phase={state?.phase}
               emergencyActive={state?.emergencyActive && state?.emergencyDirection === 'S'}
             />
             <TrafficLight 
               direction="E" 
               signal={state?.signal}
+              phase={state?.phase}
               emergencyActive={state?.emergencyActive && state?.emergencyDirection === 'E'}
             />
             <TrafficLight 
               direction="W" 
               signal={state?.signal}
+              phase={state?.phase}
               emergencyActive={state?.emergencyActive && state?.emergencyDirection === 'W'}
             />
 
@@ -807,9 +817,9 @@ const LiveIntersection = () => {
               overrideActive ? 'bg-red-600' : 'bg-[#1E2939]'
             }`}>
               <span className="text-lg font-semibold">
-                {overrideActive ? 'Manual Control' : 'Smart Signal'}: {state?.signal} | 
-                Duration: {state?.signal_duration}s | 
-                Remaining: {state?.signal_duration - (state?.signal_timer || 0)}s
+                {overrideActive ? 'Manual Control' : 'Smart Signal'}: {state?.signal} ({state?.phase || 'GREEN'}) | 
+                Duration: {state?.active_green_duration || state?.signal_duration || 30}s | 
+                {state?.clearance_status ? state.clearance_status : `${state?.phase_label || 'Remaining'}: ${state?.phase_remaining_sec ?? 0}s`}
               </span>
             </div>
             {state?.emergencyActive && (
