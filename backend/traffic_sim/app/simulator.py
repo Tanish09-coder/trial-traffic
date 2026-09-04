@@ -113,12 +113,22 @@ class TrafficSimulator:
                 },
                 'queues': {d.value: len([v for v in self.vehicles if v.direction == d]) for d in Direction},
                 'pcu_loads': {d.value: round(pcu_loads[d], 1) for d in Direction},
-                'total_pcu': round(sum(pcu_loads.values()), 1)
+                'total_pcu': round(sum(pcu_loads.values()), 1),
+                'current_weather': Config.WEATHER_MODE,
+                'effective_weather_mode': Config.WEATHER_MODE,
+                'weather_clearance_supported': False,
+                'weather_notice': 'Legacy Python backend lacks explicit clearance phase transitions; weather clearance scaling is disabled in this mode.'
             }
         elif command == 'get_metrics':
             return self.stats
         elif command.startswith('set_speed'):
             speed = float(command.split()[1])
             Config.SIMULATION_SPEED = speed
+        elif command.startswith('set_weather'):
+            parts = command.split()
+            if len(parts) > 1:
+                mode = parts[1].lower()
+                if mode in ['normal', 'rain', 'fog']:
+                    Config.WEATHER_MODE = mode
         elif command == 'reset':
             self.__init__()

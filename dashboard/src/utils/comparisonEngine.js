@@ -11,14 +11,14 @@ import { SignalManager } from './SignalManager.js';
 import { SimulationClock } from './SimulationClock.js';
 import { TRAFFIC_CONSTANTS } from './constants.js';
 
-export const COMPARISON_ENGINE_VERSION = '2.2.0';
+export const COMPARISON_ENGINE_VERSION = '2.4.0';
 
 /**
  * Pseudo-random number generator (Mulberry32) for deterministic synthetic schedules.
  */
 export function createPRNG(seed = 12345) {
   let s = seed >>> 0;
-  return function() {
+  return function () {
     s = (s + 0x6D2B79F5) | 0;
     let t = Math.imul(s ^ (s >>> 15), 1 | s);
     t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
@@ -29,7 +29,7 @@ export function createPRNG(seed = 12345) {
 /**
  * Generates deterministic synthetic arrival schedule for non-video approaches (e.g., N, E, W).
  */
-export function generateSyntheticSchedule(seed, maxDurationSec, excludeDirections = ['S']) {
+export function generateSyntheticSchedule(seed, maxDurationSec, excludeDirections = ['S'], demandMultiplier = 0.5) {
   const prng = createPRNG(seed);
   const schedule = [];
   const directions = ['N', 'E', 'S', 'W'].filter(d => !excludeDirections.includes(d));
@@ -43,7 +43,9 @@ export function generateSyntheticSchedule(seed, maxDurationSec, excludeDirection
       case 'W': baseRate = 0.28 + 0.28 * Math.sin((2 * Math.PI * t) / 200 + Math.PI); break;
       default: baseRate = 0.25;
     }
-    return Math.max(0.08, parseFloat(baseRate.toFixed(3)));
+    const unscaledRate = Math.max(0.08, parseFloat(baseRate.toFixed(3)));
+    const mult = typeof demandMultiplier === 'number' && demandMultiplier > 0 ? demandMultiplier : 0.5;
+    return parseFloat((unscaledRate * mult).toFixed(4));
   };
 
   directions.forEach(direction => {
@@ -74,7 +76,7 @@ export function generateSyntheticSchedule(seed, maxDurationSec, excludeDirection
  * Computes a deterministic fingerprint from full timeline events & configuration parameters.
  */
 export function computeFingerprint(inputConfig, arrivalTimeline = []) {
-  const normalizedTimeline = arrivalTimeline.map(e => 
+  const normalizedTimeline = arrivalTimeline.map(e =>
     `${e.eventId || ''}@${e.videoTimeSec || 0}:${e.mappedDirection || 'S'}:${e.vehicleType || 'car'}`
   ).join('|');
 
@@ -96,7 +98,7 @@ export function computeFingerprint(inputConfig, arrivalTimeline = []) {
 /**
  * Runs a single isolated simulation session with sub-step precision (<= 0.05s).
  */
-export function runSingleSession({ strategy, arrivalTimeline, targetDurationSec, nominalDt = 0.1 }) {
+export function runSingleSession({ strategy, arrivalTimeline, targetDurationSec, nominalDt = 0.1, weatherMode = 'normal' }) {
   const vm = new VehicleManager();
   vm.reset();
 
@@ -108,6 +110,7 @@ export function runSingleSession({ strategy, arrivalTimeline, targetDurationSec,
 
   const sm = new SignalManager(strategy);
   sm.reset();
+  sm.setWeather(weatherMode);
 
   const clock = new SimulationClock(1.0);
   clock.reset();
@@ -265,13 +268,15 @@ export function runComparisonPair({
   durationSec = 158.63,
   randomSeed = 42,
   fixedDurations = TRAFFIC_CONSTANTS.SIGNAL_POLICY.FIXED_DURATIONS,
-  roi = null
+  roi = null,
+  weatherMode = 'normal',
+  demandMultiplier = (TRAFFIC_CONSTANTS.DEMAND_POLICY?.DEFAULT_GENERATED_DEMAND_MULTIPLIER ?? 0.5)
 }) {
   const startTimeISO = new Date().toISOString();
   const runId = `run-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 
   // Build unified arrival timeline
-  const synthSchedule = generateSyntheticSchedule(randomSeed, durationSec, [mappedDirection]);
+  const synthSchedule = generateSyntheticSchedule(randomSeed, durationSec, [mappedDirection], demandMultiplier);
   const videoSchedule = arrivalEvents.map(e => ({
     ...e,
     mappedDirection: mappedDirection
@@ -284,25 +289,31 @@ export function runComparisonPair({
     mappedDirection,
     durationSec,
     randomSeed,
+    demandMultiplier,
+    adaptiveSecondsPerPCU: TRAFFIC_CONSTANTS.SIGNAL_POLICY?.ADAPTIVE_SECONDS_PER_PCU || 1.0,
     arrivalCount: arrivalEvents.length,
     fixedDurations,
     roi,
+    weatherMode,
+    weatherPolicy: TRAFFIC_CONSTANTS.WEATHER_POLICY,
     version: COMPARISON_ENGINE_VERSION
   };
 
   const fingerprint = computeFingerprint(inputConfig, arrivalTimeline);
 
-  // Run isolated sessions
+  // Run isolated sessions with identical weather mode
   const fixedResults = runSingleSession({
     strategy: 'fixed',
     arrivalTimeline,
-    targetDurationSec: durationSec
+    targetDurationSec: durationSec,
+    weatherMode
   });
 
   const adaptiveResults = runSingleSession({
     strategy: 'adaptive',
     arrivalTimeline,
-    targetDurationSec: durationSec
+    targetDurationSec: durationSec,
+    weatherMode
   });
 
   // Calculate percentage change helper

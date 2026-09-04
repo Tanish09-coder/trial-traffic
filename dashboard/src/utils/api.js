@@ -59,6 +59,15 @@ export const setSimulationSpeed = async (speed) => {
   }
 };
 
+export const setBackendWeather = async (weather) => {
+  try {
+    const response = await api.post('/weather', { weather });
+    return response.data;
+  } catch (error) {
+    throw new Error(`Failed to set simulation weather: ${error.message}`);
+  }
+};
+
 export const resetBackendSimulation = async () => {
   try {
     const response = await api.post('/reset');

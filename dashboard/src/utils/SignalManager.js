@@ -5,10 +5,10 @@ export class SignalManager {
   constructor(initialStrategy = 'adaptive') {
     this.currentSignal = 'N';
     this.signalTimer = 0;
-    
+
     this.currentSignalIndex = 0;
     this.signalSequence = ['N', 'E', 'S', 'W'];
-    
+
     // Strategy & Phase Controller
     this.strategy = initialStrategy;       // Active strategy: 'adaptive' | 'fixed'
     this.stagedStrategy = initialStrategy; // Staged strategy to apply at next phase boundary
@@ -31,6 +31,12 @@ export class SignalManager {
     this.yellowDuration = TRAFFIC_CONSTANTS.SIGNAL_POLICY?.YELLOW_DURATION_SEC || 3;
     this.allRedDuration = TRAFFIC_CONSTANTS.SIGNAL_POLICY?.ALL_RED_DURATION_SEC || 1;
 
+    // Weather-Adaptive Clearance State
+    this.weatherMode = TRAFFIC_CONSTANTS.WEATHER_POLICY?.DEFAULT_MODE || 'normal';
+    this.effectiveWeatherMode = this.weatherMode;
+    this.effectiveYellowDuration = this.yellowDuration;
+    this.effectiveAllRedDuration = this.allRedDuration;
+
     // Emergency tracking
     this.emergencyActive = false;
     this.emergencyDirection = null;
@@ -51,6 +57,36 @@ export class SignalManager {
       stoppedCounts: { N: 0, S: 0, E: 0, W: 0 },
       timestamp: Date.now()
     };
+  }
+
+  setWeather(mode) {
+    const validModes = TRAFFIC_CONSTANTS.WEATHER_POLICY?.MODES || ['normal', 'rain', 'fog'];
+    if (!mode || typeof mode !== 'string' || !validModes.includes(mode.toLowerCase())) {
+      console.warn(`Invalid weather mode requested: '${mode}'. Active weather mode '${this.weatherMode}' preserved.`);
+      return false;
+    }
+    this.weatherMode = mode.toLowerCase();
+    return true;
+  }
+
+  calculateClearanceDurations(mode) {
+    const policy = TRAFFIC_CONSTANTS.WEATHER_POLICY || {};
+    const multMap = policy.MULTIPLIERS || { normal: 1.0, rain: 1.2, fog: 1.4 };
+    const mult = multMap[mode] !== undefined ? multMap[mode] : 1.0;
+    const baseYellow = policy.NOMINAL_YELLOW_SEC || 3.0;
+    const baseAllRed = policy.NOMINAL_ALL_RED_SEC || 1.0;
+    const yellowBounds = policy.CLEARANCE_BOUNDS?.yellow || { min: 3.0, max: 4.2 };
+    const allRedBounds = policy.CLEARANCE_BOUNDS?.allRed || { min: 1.0, max: 1.4 };
+
+    // Calculate: adjusted = baseClearanceSeconds * multiplier
+    // nominalDuration = clamp(adjusted, clearanceMin, clearanceMax)
+    const rawYellow = baseYellow * mult;
+    const rawAllRed = baseAllRed * mult;
+
+    const yellowSec = Math.max(yellowBounds.min, Math.min(yellowBounds.max, rawYellow));
+    const allRedSec = Math.max(allRedBounds.min, Math.min(allRedBounds.max, rawAllRed));
+
+    return { yellowSec, allRedSec, multiplier: mult };
   }
 
   setStrategy(newStrategy) {
@@ -102,13 +138,13 @@ export class SignalManager {
         this.initiateClearanceSwitch(queues, stoppedCounts, queuedPCUs, oldestWaitTimes, false);
       }
     } else if (this.phase === 'YELLOW') {
-      if (this.phaseTimer >= this.yellowDuration) {
+      if (this.phaseTimer >= this.effectiveYellowDuration) {
         this.phase = 'ALL_RED';
         this.phaseTimer = 0;
       }
     } else if (this.phase === 'ALL_RED') {
       // Check if crossing vehicles remain inside intersection
-      if (this.phaseTimer >= this.allRedDuration) {
+      if (this.phaseTimer >= this.effectiveAllRedDuration) {
         if (isIntersectionOccupied) {
           this.isExtendedClearance = true;
           // Hold ALL_RED phase until intersection is clear
@@ -118,7 +154,7 @@ export class SignalManager {
         // Clearance complete: commit pending signal and pending green duration together!
         this.isExtendedClearance = false;
         this.strategy = this.stagedStrategy;
-        
+
         if (this.pendingSignal !== this.currentSignal) {
           this.continuousGreenTimeSec = 0;
         }
@@ -127,7 +163,7 @@ export class SignalManager {
         this.activeGreenDuration = this.pendingGreenDuration;
         this.signalDuration = this.pendingGreenDuration;
         this.currentSignalIndex = this.signalSequence.indexOf(this.currentSignal);
-        
+
         this.phase = 'GREEN';
         this.phaseTimer = 0;
         this.signalTimer = 0;
@@ -161,6 +197,9 @@ export class SignalManager {
       proposedGreen: decision.proposedGreen,
       activeGreen: this.activeGreenDuration,
       reason: decision.reason,
+      allocationExplanation: decision.allocationExplanation,
+      snapshotPCU: decision.snapshotPCU,
+      coefficient: decision.coefficient,
       queuedPCUs: { ...queuedPCUs },
       stoppedCounts: { ...stoppedCounts },
       timestamp: Date.now()
@@ -176,7 +215,14 @@ export class SignalManager {
       return;
     }
 
-    // Start YELLOW clearance phase; keep activeGreenDuration unchanged until new GREEN phase starts
+    // Start YELLOW clearance phase: SNAPSHOT WEATHER HERE!
+    this.effectiveWeatherMode = this.weatherMode;
+    const { yellowSec, allRedSec } = this.calculateClearanceDurations(this.effectiveWeatherMode);
+    this.effectiveYellowDuration = yellowSec;
+    this.effectiveAllRedDuration = allRedSec;
+    this.yellowDuration = yellowSec;
+    this.allRedDuration = allRedSec;
+
     this.phase = 'YELLOW';
     this.phaseTimer = 0;
   }
@@ -222,6 +268,13 @@ export class SignalManager {
         this.pendingGreenDuration = TRAFFIC_CONSTANTS.MAX_SIGNAL_TIME || 60;
 
         if (this.currentSignal !== approach || this.phase !== 'GREEN') {
+          this.effectiveWeatherMode = this.weatherMode;
+          const { yellowSec, allRedSec } = this.calculateClearanceDurations(this.effectiveWeatherMode);
+          this.effectiveYellowDuration = yellowSec;
+          this.effectiveAllRedDuration = allRedSec;
+          this.yellowDuration = yellowSec;
+          this.allRedDuration = allRedSec;
+
           this.phase = 'YELLOW';
           this.phaseTimer = 0;
         } else {
@@ -399,16 +452,18 @@ export class SignalManager {
       phaseRemainingSec = Math.max(0, Math.ceil(activeDuration - this.signalTimer));
       phaseLabel = 'Green remaining';
     } else if (this.phase === 'YELLOW') {
-      phaseRemainingSec = Math.max(0, Math.ceil(this.yellowDuration - this.phaseTimer));
+      phaseRemainingSec = Math.max(0, Math.ceil(this.effectiveYellowDuration - this.phaseTimer));
       phaseLabel = 'Yellow clearance';
     } else if (this.phase === 'ALL_RED') {
-      phaseRemainingSec = Math.max(0, Math.ceil(this.allRedDuration - this.phaseTimer));
+      phaseRemainingSec = Math.max(0, Math.ceil(this.effectiveAllRedDuration - this.phaseTimer));
       phaseLabel = 'All-red clearance';
     }
 
     const clearanceStatus = this.isExtendedClearance
       ? 'Waiting for intersection clearance'
       : null;
+
+    const { multiplier } = this.calculateClearanceDurations(this.effectiveWeatherMode);
 
     return {
       current_signal: this.currentSignal,
@@ -427,6 +482,11 @@ export class SignalManager {
       continuous_green_sec: Math.round(this.continuousGreenTimeSec),
       emergency_active: this.emergencyActive,
       emergency_direction: this.emergencyDirection,
+      weather_mode: this.weatherMode,
+      effective_weather_mode: this.effectiveWeatherMode,
+      yellow_duration: parseFloat(this.effectiveYellowDuration.toFixed(1)),
+      all_red_duration: parseFloat(this.effectiveAllRedDuration.toFixed(1)),
+      weather_multiplier: multiplier,
       waiting_ticks: { ...this.waitingTicks },
       waiting_seconds: { ...this.waitingSeconds },
       decision: { ...this.latestDecision },

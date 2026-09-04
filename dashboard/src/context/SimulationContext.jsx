@@ -3,13 +3,14 @@ import { VehicleManager } from '../utils/VehicleManager';
 import { SignalManager } from '../utils/SignalManager';
 import { SimulationClock } from '../utils/SimulationClock';
 import { analyticsManager } from '../utils/AnalyticsManager';
-import { 
-  getState as getBackendState, 
-  getMetrics as getBackendMetrics, 
-  startSimulation as startBackendSimulation, 
-  stopSimulation as stopBackendSimulation, 
-  setSimulationSpeed as setBackendSpeed, 
-  resetBackendSimulation 
+import {
+  getState as getBackendState,
+  getMetrics as getBackendMetrics,
+  startSimulation as startBackendSimulation,
+  stopSimulation as stopBackendSimulation,
+  setSimulationSpeed as setBackendSpeed,
+  setBackendWeather,
+  resetBackendSimulation
 } from '../utils/api';
 import { runComparisonPair } from '../utils/comparisonEngine';
 
@@ -53,7 +54,10 @@ export const SimulationProvider = ({ children }) => {
   // Session configuration state
   const [useMock, setUseMock] = useState(true);
   const [simulationSpeed, setSimulationSpeedState] = useState(1.0);
+  const [weatherMode, setWeatherModeState] = useState('normal');
   const [strategy, setStrategyState] = useState('adaptive'); // 'adaptive' | 'fixed'
+  const [generatedDemand, setGeneratedDemandState] = useState(0.5);
+  const [stagedDemand, setStagedDemandState] = useState(0.5);
   const [dataSource, setDataSource] = useState('simulation'); // 'simulation' | 'recorded_video'
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -71,6 +75,11 @@ export const SimulationProvider = ({ children }) => {
       signal_duration: sState.duration,
       emergencyActive: sState.emergency_active || vState.emergencyActive,
       emergencyDirection: sState.emergency_direction || vState.emergencyDirection,
+      weather_mode: sState.weather_mode,
+      effective_weather_mode: sState.effective_weather_mode,
+      yellow_duration: sState.yellow_duration,
+      all_red_duration: sState.all_red_duration,
+      weather_multiplier: sState.weather_multiplier,
       pedestrian_signals: sState.pedestrian_signals,
       strategy: sState.strategy,
       staged_strategy: sState.staged_strategy,
@@ -122,7 +131,9 @@ export const SimulationProvider = ({ children }) => {
           arrivalEvents: targetCfg.arrivalEvents,
           mappedDirection: targetCfg.mappedDirection || 'S',
           durationSec: targetCfg.durationSec || 158.63,
-          randomSeed: 42
+          randomSeed: 42,
+          weatherMode,
+          demandMultiplier: generatedDemand
         });
 
         // Job Token Protection: ignore results if a newer run was triggered
@@ -139,7 +150,7 @@ export const SimulationProvider = ({ children }) => {
         }
       }
     }, 15);
-  }, [videoReplayConfig]);
+  }, [videoReplayConfig, weatherMode, generatedDemand]);
 
   useEffect(() => {
     return () => {
@@ -159,7 +170,7 @@ export const SimulationProvider = ({ children }) => {
       if (videoReplayActive && videoReplayConfig && videoReplayConfig.arrivalEvents) {
         const events = videoReplayConfig.arrivalEvents;
         const mappedDir = videoReplayConfig.mappedDirection || 'S';
-        
+
         while (
           videoEventCursorRef.current < events.length &&
           events[videoEventCursorRef.current].videoTimeSec <= currentSimTime
@@ -217,9 +228,17 @@ export const SimulationProvider = ({ children }) => {
         clearance_status: sState.clearance_status,
         emergencyActive: sState.emergency_active || vState.emergencyActive,
         emergencyDirection: sState.emergency_direction || vState.emergencyDirection,
+        weather_mode: sState.weather_mode,
+        effective_weather_mode: sState.effective_weather_mode,
+        yellow_duration: sState.yellow_duration,
+        all_red_duration: sState.all_red_duration,
+        weather_multiplier: sState.weather_multiplier,
         pedestrian_signals: sState.pedestrian_signals,
         strategy: sState.strategy,
         staged_strategy: sState.staged_strategy,
+        generatedDemand,
+        stagedDemand,
+        demandPendingReset: stagedDemand !== generatedDemand,
         decision: sState.decision,
         dataSource,
         videoReplayActive,
@@ -256,7 +275,7 @@ export const SimulationProvider = ({ children }) => {
       console.error('Simulation tick error:', err);
       setError(`Simulation tick error: ${err.message}`);
     }
-  }, [useMock, dataSource, videoReplayActive, videoReplayConfig]);
+  }, [useMock, dataSource, videoReplayActive, videoReplayConfig, generatedDemand, stagedDemand]);
 
 
   // Single central simulation loop protected against StrictMode duplicates
@@ -393,12 +412,27 @@ export const SimulationProvider = ({ children }) => {
     }
   }, [useMock, clock]);
 
+  const setWeather = useCallback((mode) => {
+    const success = signalManager.setWeather(mode);
+    if (success) {
+      setWeatherModeState(mode.toLowerCase());
+      if (!useMock) {
+        setBackendWeather(mode.toLowerCase()).catch(err => console.warn('Backend weather update error:', err));
+      }
+    }
+  }, [useMock, signalManager]);
+
   const setStrategy = useCallback((newStrategy) => {
     if (['adaptive', 'fixed'].includes(newStrategy)) {
       setStrategyState(newStrategy);
       signalManager.setStrategy(newStrategy);
     }
   }, [signalManager]);
+
+  const setGeneratedDemandMultiplier = useCallback((multiplier) => {
+    const val = multiplier === 1.0 ? 1.0 : 0.5;
+    setStagedDemandState(val);
+  }, []);
 
   const resetSimulation = useCallback(() => {
     analyticsManager.reset();
@@ -407,29 +441,35 @@ export const SimulationProvider = ({ children }) => {
     processedEventIdsRef.current.clear();
     setVideoReplayActive(false);
     setDataSource('simulation');
+    const newDemand = stagedDemand;
+    setGeneratedDemandState(newDemand);
     if (useMock) {
       ['N', 'S', 'E', 'W'].forEach(d => vehicleManager.setApproachSource(d, 'simulation'));
-      vehicleManager.reset();
+      vehicleManager.reset(12345, newDemand);
       signalManager.reset();
+      signalManager.setWeather(weatherMode);
     } else {
       resetBackendSimulation().catch(err => console.warn('Backend reset error:', err));
     }
-  }, [useMock, vehicleManager, signalManager, clock]);
+  }, [useMock, vehicleManager, signalManager, clock, weatherMode, stagedDemand]);
 
   const startVideoDrivenSimulation = useCallback(({ videoId, arrivalEvents, mappedDirection, durationSec }) => {
     if (!useMock) {
       setError('Video-driven simulation is only available in Browser Simulation mode.');
       return;
     }
-    
+
     // Explicit fresh session reset
     analyticsManager.reset();
     clock.reset();
     videoEventCursorRef.current = 0;
     processedEventIdsRef.current.clear();
 
+    const newDemand = stagedDemand;
+    setGeneratedDemandState(newDemand);
+
     if (useMock) {
-      vehicleManager.reset();
+      vehicleManager.reset(12345, newDemand);
       signalManager.reset();
     }
 
@@ -458,7 +498,7 @@ export const SimulationProvider = ({ children }) => {
 
     // Automatically start isolated comparison run on valid video analysis start
     runComparison(replayCfg);
-  }, [useMock, vehicleManager, signalManager, clock, runComparison]);
+  }, [useMock, vehicleManager, signalManager, clock, runComparison, stagedDemand]);
 
   const stopVideoDrivenSimulation = useCallback(() => {
     setVideoReplayActive(false);
@@ -508,8 +548,13 @@ export const SimulationProvider = ({ children }) => {
     error,
     useMock,
     simulationSpeed,
+    weatherMode,
     strategy,
     stagedStrategy: signalManager.stagedStrategy,
+    generatedDemand,
+    stagedDemand,
+    demandPendingReset: stagedDemand !== generatedDemand,
+    setGeneratedDemandMultiplier,
     dataSource,
     videoReplayActive,
     videoReplayConfig,
@@ -518,6 +563,7 @@ export const SimulationProvider = ({ children }) => {
     comparisonError,
     rerunComparison: useCallback(() => runComparison(null), [runComparison]),
     setStrategy,
+    setWeather,
     setDataSource,
     switchToMock,
     switchToBackend,

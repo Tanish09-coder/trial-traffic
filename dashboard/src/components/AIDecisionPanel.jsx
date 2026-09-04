@@ -4,19 +4,19 @@ import { useSimulation } from '../context/SimulationContext';
 
 export const AIDecisionPanel = () => {
   const { state, strategy, setStrategy, useMock } = useSimulation();
-  const { 
-    signal, 
-    pending_signal, 
-    phase, 
-    signal_timer, 
-    active_green_duration, 
+  const {
+    signal,
+    pending_signal,
+    phase,
+    signal_timer,
+    active_green_duration,
     pending_green_duration,
     phase_remaining_sec,
     phase_label,
     clearance_status,
-    decision, 
-    queued_pcus, 
-    stopped_queues 
+    decision,
+    queued_pcus,
+    stopped_queues
   } = state || {};
 
   const stagedStrategy = state.staged_strategy || strategy;
@@ -38,21 +38,19 @@ export const AIDecisionPanel = () => {
         <div className="flex items-center bg-gray-900/90 p-1 rounded-lg border border-gray-800">
           <button
             onClick={() => setStrategy('fixed')}
-            className={`px-3 py-1 text-xs font-semibold rounded-md transition-colors ${
-              strategy === 'fixed'
+            className={`px-3 py-1 text-xs font-semibold rounded-md transition-colors ${strategy === 'fixed'
                 ? 'bg-amber-600 text-white shadow-sm'
                 : 'text-gray-400 hover:text-gray-200'
-            }`}
+              }`}
           >
             Fixed Plan
           </button>
           <button
             onClick={() => setStrategy('adaptive')}
-            className={`px-3 py-1 text-xs font-semibold rounded-md transition-colors ${
-              strategy === 'adaptive'
+            className={`px-3 py-1 text-xs font-semibold rounded-md transition-colors ${strategy === 'adaptive'
                 ? 'bg-emerald-600 text-white shadow-sm'
                 : 'text-gray-400 hover:text-gray-200'
-            }`}
+              }`}
           >
             Adaptive Heuristic
           </button>
@@ -89,11 +87,10 @@ export const AIDecisionPanel = () => {
           <span className="text-[10px] uppercase font-bold text-gray-400 tracking-wider">Active Signal</span>
           <div className="flex items-center space-x-1.5 mt-0.5">
             <span className="text-base font-extrabold text-emerald-400">{signal || 'N'}</span>
-            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
-              phase === 'GREEN' ? 'bg-emerald-950 text-emerald-300 border border-emerald-800' :
-              phase === 'YELLOW' ? 'bg-amber-950 text-amber-300 border border-amber-800 animate-pulse' :
-              'bg-red-950 text-red-300 border border-red-800'
-            }`}>
+            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${phase === 'GREEN' ? 'bg-emerald-950 text-emerald-300 border border-emerald-800' :
+                phase === 'YELLOW' ? 'bg-amber-950 text-amber-300 border border-amber-800 animate-pulse' :
+                  'bg-red-950 text-red-300 border border-red-800'
+              }`}>
               {phase}
             </span>
           </div>
@@ -146,6 +143,17 @@ export const AIDecisionPanel = () => {
           })}
         </div>
       </div>
+
+      {/* Allocation Formula Snapshot Explanation */}
+      {decision?.allocationExplanation && (
+        <div className="mb-2 text-xs bg-indigo-950/60 border border-indigo-800/80 rounded-lg p-2 text-indigo-200 flex items-start space-x-2">
+          <Clock className="w-4 h-4 text-indigo-400 flex-shrink-0 mt-0.5" />
+          <div>
+            <span className="font-semibold text-gray-200">Allocation Snapshot: </span>
+            <span className="text-indigo-200 font-mono">{decision.allocationExplanation}</span>
+          </div>
+        </div>
+      )}
 
       {/* Decision Reason */}
       {decision?.reason && (

@@ -1,22 +1,22 @@
 import React from 'react';
-import { 
-  SlidersHorizontal, 
-  X, 
-  Play, 
-  Pause, 
-  FastForward, 
+import {
+  SlidersHorizontal,
+  X,
+  Play,
+  Pause,
+  FastForward,
   RotateCcw,
   Server
 } from 'lucide-react';
 import { useTraffic } from '../context/TrafficContext';
 
 export const JudgeDemoDrawer = ({ isOpen, onClose }) => {
-  const { 
-    triggerScenario, 
-    simulationSpeed, 
-    setSimulationSpeed, 
+  const {
+    triggerScenario,
+    simulationSpeed,
+    setSimulationSpeed,
     systemMode,
-    emergencyCorridor 
+    emergencyCorridor
   } = useTraffic();
 
   if (!isOpen) return null;
@@ -52,7 +52,7 @@ export const JudgeDemoDrawer = ({ isOpen, onClose }) => {
   return (
     <div className="fixed inset-0 z-50 overflow-hidden flex justify-end bg-black/70 backdrop-blur-sm">
       <div className="w-full max-w-md bg-[#0D111A] border-l border-[#1D2638] h-full flex flex-col justify-between overflow-y-auto">
-        
+
         {/* Header */}
         <div className="p-5 bg-[#090C12] border-b border-[#1D2638] flex items-center justify-between">
           <div className="flex items-center space-x-2.5">
@@ -79,7 +79,7 @@ export const JudgeDemoDrawer = ({ isOpen, onClose }) => {
 
         {/* Body */}
         <div className="p-5 space-y-5 flex-1">
-          
+
           {/* Speed Controls */}
           <div className="p-3.5 rounded-lg bg-[#080B10] border border-[#1D2638] space-y-2.5">
             <div className="flex items-center justify-between text-xs">
@@ -99,11 +99,10 @@ export const JudgeDemoDrawer = ({ isOpen, onClose }) => {
                 <button
                   key={item.speed}
                   onClick={() => setSimulationSpeed(item.speed)}
-                  className={`py-1.5 px-1 rounded text-xs font-mono font-medium transition-colors cursor-pointer flex items-center justify-center space-x-1 ${
-                    simulationSpeed === item.speed
+                  className={`py-1.5 px-1 rounded text-xs font-mono font-medium transition-colors cursor-pointer flex items-center justify-center space-x-1 ${simulationSpeed === item.speed
                       ? 'bg-[#1E2A3F] text-cyan-300 border border-cyan-500/50'
                       : 'bg-[#101520] text-slate-400 hover:text-slate-200 border border-[#1D2638]'
-                  }`}
+                    }`}
                 >
                   <item.icon className="w-3 h-3" />
                   <span>{item.label}</span>
@@ -132,11 +131,10 @@ export const JudgeDemoDrawer = ({ isOpen, onClose }) => {
                 <button
                   onClick={() => triggerScenario(sc.id)}
                   disabled={sc.disabled}
-                  className={`w-full mt-2 py-1.5 px-3 rounded text-xs font-medium border transition-colors cursor-pointer ${
-                    sc.disabled
+                  className={`w-full mt-2 py-1.5 px-3 rounded text-xs font-medium border transition-colors cursor-pointer ${sc.disabled
                       ? 'bg-slate-800 text-slate-500 border-transparent cursor-not-allowed'
                       : 'bg-[#151D2C] hover:bg-[#1E293B] text-slate-200 border-[#2D3A50]'
-                  }`}
+                    }`}
                 >
                   {sc.btnText}
                 </button>

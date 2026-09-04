@@ -10,7 +10,7 @@ const QUEUE_APPROACH_SPEED = 1.2;
  */
 function createPRNG(seed = 12345) {
   let s = seed >>> 0;
-  return function() {
+  return function () {
     s = (s + 0x6D2B79F5) | 0;
     let t = Math.imul(s ^ (s >>> 15), 1 | s);
     t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
@@ -19,8 +19,9 @@ function createPRNG(seed = 12345) {
 }
 
 export class VehicleManager {
-  constructor(seed = 12345) {
+  constructor(seed = 12345, demandMultiplier = (TRAFFIC_CONSTANTS.DEMAND_POLICY?.DEFAULT_GENERATED_DEMAND_MULTIPLIER ?? 0.5)) {
     this.seed = seed;
+    this.demandMultiplier = demandMultiplier;
     this.cars = { N: [], E: [], S: [], W: [] };
     this.backlog = { N: [], E: [], S: [], W: [] };
     this.carsPassed = 0;
@@ -63,7 +64,7 @@ export class VehicleManager {
 
   injectExternalArrival(direction, event) {
     if (!['N', 'S', 'E', 'W'].includes(direction)) return;
-    
+
     const vType = event.vehicleType || 'car';
     const speed = vType === 'bike' ? 7.5 : vType === 'bus' ? 4.5 : vType === 'truck' ? 4.0 : 6.0;
     const vehId = event.eventId || `vid-${direction}-${this.carIdCounter++}`;
@@ -102,21 +103,23 @@ export class VehicleManager {
     return true;
   }
 
-  setSeed(seed = 12345) {
+  setSeed(seed = 12345, demandMultiplier = this.demandMultiplier) {
     this.seed = seed;
+    this.demandMultiplier = demandMultiplier;
     this._initScheduleAndSimulation();
   }
 
   _initScheduleAndSimulation() {
-    this.arrivalSchedule = this._generateArrivalSchedule(this.seed, 1200);
+    this.arrivalSchedule = this._generateArrivalSchedule(this.seed, 1200, this.demandMultiplier);
     this.nextArrivalIndex = 0;
     this._initializeSimulationVehicles();
   }
 
   /**
    * Dynamic time-varying demand curves (vehicles per simulation second).
+   * Multiplier is applied to rate AFTER calculating base curve and min floor.
    */
-  getArrivalRate(direction, simTimeSec) {
+  getArrivalRate(direction, simTimeSec, demandMultiplier = this.demandMultiplier) {
     const t = simTimeSec || 0;
     let baseRate = 0.30;
 
@@ -134,7 +137,9 @@ export class VehicleManager {
         baseRate = 0.28 + 0.28 * Math.sin((2 * Math.PI * t) / 200 + Math.PI);
         break;
     }
-    return Math.max(0.08, parseFloat(baseRate.toFixed(3)));
+    const unscaledRate = Math.max(0.08, parseFloat(baseRate.toFixed(3)));
+    const mult = typeof demandMultiplier === 'number' && demandMultiplier > 0 ? demandMultiplier : 0.5;
+    return parseFloat((unscaledRate * mult).toFixed(4));
   }
 
   /**
@@ -142,7 +147,7 @@ export class VehicleManager {
    * Ensures identical arrival timestamps, directions, and vehicle types
    * regardless of physics sub-step sizes (e.g. 0.05s vs 0.1s).
    */
-  _generateArrivalSchedule(seed, maxDurationSec = 1200) {
+  _generateArrivalSchedule(seed, maxDurationSec = 1200, demandMultiplier = this.demandMultiplier) {
     const prng = createPRNG(seed);
     const schedule = [];
     const directions = ['N', 'S', 'E', 'W'];
@@ -151,7 +156,7 @@ export class VehicleManager {
     directions.forEach(direction => {
       let t = prng() * 2.0;
       while (t < maxDurationSec) {
-        const ratePerSec = this.getArrivalRate(direction, t);
+        const ratePerSec = this.getArrivalRate(direction, t, demandMultiplier);
         const dtArrival = -Math.log(1 - Math.min(0.99, prng())) / ratePerSec;
         t += Math.max(0.5, dtArrival);
 
@@ -604,8 +609,9 @@ export class VehicleManager {
     };
   }
 
-  reset(seed = 12345) {
+  reset(seed = 12345, demandMultiplier = this.demandMultiplier) {
     this.seed = seed;
+    this.demandMultiplier = demandMultiplier;
     this.carsPassed = 0;
     this.sessionDurationSeconds = 0;
     this.emergencyVehicle = null;
@@ -641,7 +647,8 @@ export class VehicleManager {
       backlog_queues: this.getBacklogQueues(),
       queued_pcus: this.getQueuedPCUs(),
       avg_wait_time: this.calculateAverageWaitTime(),
-      throughput: this.calculateThroughput()
+      throughput: this.calculateThroughput(),
+      generated_demand_multiplier: this.demandMultiplier
     };
   }
 }

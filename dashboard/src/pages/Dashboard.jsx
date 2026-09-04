@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Maximize, Minimize } from 'lucide-react';
+import { Maximize, Minimize, Sun, CloudRain, CloudFog } from 'lucide-react';
 import { useTrafficData } from '../utils/useTrafficData';
 import Car from '../components/car';
 import TrafficLight from '../components/TrafficLight';
@@ -13,18 +13,24 @@ import ErrorBoundary from '../components/ErrorBoundary';
 import { calculateEnvironmentalImpact } from '../utils/environmentalImpact';
 
 const Dashboard = () => {
-  const { 
-    state, 
-    metrics, 
-    loading, 
-    error, 
-    useMock, 
+  const {
+    state,
+    metrics,
+    loading,
+    error,
+    useMock,
     simulationSpeed,
-    switchToMock, 
-    switchToBackend, 
-    setSpeed, 
+    weatherMode,
+    generatedDemand,
+    stagedDemand,
+    demandPendingReset,
+    setGeneratedDemandMultiplier,
+    switchToMock,
+    switchToBackend,
+    setSpeed,
+    setWeather,
     resetSimulation,
-    triggerEmergencyVehicle 
+    triggerEmergencyVehicle
   } = useTrafficData();
 
   // Control panel state
@@ -92,7 +98,7 @@ const Dashboard = () => {
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
       <div>
-        
+
         {/* Error Banner */}
         <AnimatePresence>
           {error && (
@@ -138,7 +144,7 @@ const Dashboard = () => {
 
                 <span className="text-xs sm:text-sm text-slate-500">📍 Mumbai BKC Junction</span>
               </div>
-              
+
               {/* Enhanced status indicators */}
               {state?.empty_roads && state.empty_roads.length > 0 && (
                 <div className="mt-2">
@@ -148,7 +154,7 @@ const Dashboard = () => {
                   </span>
                 </div>
               )}
-              
+
               {state?.postEmergencyMode && (
                 <div className="mt-2">
                   <span className="inline-flex items-center space-x-1 px-3 py-1 rounded-full bg-yellow-100 text-yellow-700 text-xs">
@@ -178,7 +184,7 @@ const Dashboard = () => {
             color="orange"
           />
           <StatCard
-            title="Total Throughput" 
+            title="Total Throughput"
             value={typeof metrics?.throughput === 'number' ? Number(metrics.throughput.toFixed(1)) : 0}
             unit="cars/min"
             icon="📊"
@@ -200,7 +206,7 @@ const Dashboard = () => {
 
         {/* Main Dashboard */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          
+
           {/* Intersection View */}
           <div className="lg:col-span-2">
             <div className="bg-white rounded-lg shadow-sm border p-6">
@@ -243,29 +249,28 @@ const Dashboard = () => {
                   <div className={`absolute top-1/2 left-0 w-full bg-[#364152] transform -translate-y-1/2 shadow-2xl ${isFullscreen ? 'h-40' : 'h-20'}`}>
                     <div className="absolute top-1/2 left-0 w-full h-1 bg-yellow-400 opacity-90 transform -translate-y-1/2"></div>
                   </div>
-                  
+
                   {/* Vertical road */}
                   <div className={`absolute left-1/2 top-0 h-full bg-[#364152] transform -translate-x-1/2 shadow-2xl ${isFullscreen ? 'w-40' : 'w-20'}`}>
                     <div className="absolute left-1/2 top-0 w-1 h-full bg-yellow-400 opacity-90 transform -translate-x-1/2"></div>
                   </div>
-                  
+
                   {/* Intersection center box */}
                   <div className={`absolute top-1/2 left-1/2 bg-[#4B5461] rounded-lg transform -translate-x-1/2 -translate-y-1/2 shadow-2xl ${isFullscreen ? 'w-40 h-40' : 'w-20 h-20'}`}>
                   </div>
 
                   {/* 🚶‍♂️ Minimalist Compact Zebra Crossings & High-Visibility Pedestrian Walkers */}
-                  
+
                   {/* North Crosswalk */}
                   {(() => {
                     const pN = state?.pedestrian_signals?.N || 'STOP';
                     const isWalk = pN === 'WALK';
                     return (
                       <>
-                        <div className={`absolute left-1/2 transform -translate-x-1/2 z-10 pointer-events-none ${
-                          isFullscreen 
-                            ? 'top-[calc(50%-145px)] w-32 h-12' 
+                        <div className={`absolute left-1/2 transform -translate-x-1/2 z-10 pointer-events-none ${isFullscreen
+                            ? 'top-[calc(50%-145px)] w-32 h-12'
                             : 'top-[calc(50%-78px)] w-16 h-6.5'
-                        }`}>
+                          }`}>
                           <div className="w-full h-full flex justify-between px-0.5">
                             {[...Array(8)].map((_, i) => (
                               <div key={i} className={`h-full rounded-[0.5px] bg-white shadow-sm ${isFullscreen ? 'w-[3.5px]' : 'w-[2px]'}`} />
@@ -273,9 +278,8 @@ const Dashboard = () => {
                           </div>
                           {isWalk && (
                             <motion.div
-                              className={`absolute select-none pointer-events-none filter drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)] ${
-                                isFullscreen ? 'text-sm -top-4' : 'text-xs -top-3'
-                              }`}
+                              className={`absolute select-none pointer-events-none filter drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)] ${isFullscreen ? 'text-sm -top-4' : 'text-xs -top-3'
+                                }`}
                               animate={{ left: ['-5%', '100%'], opacity: [0, 1, 1, 1, 0] }}
                               transition={{ duration: 3.8, repeat: Infinity, ease: 'linear' }}
                             >
@@ -284,11 +288,10 @@ const Dashboard = () => {
                           )}
                         </div>
                         {/* North Pedestrian Signal Light (Right Curb) */}
-                        <div className={`absolute z-20 ${
-                          isFullscreen 
-                            ? 'left-[calc(50%+84px)] top-[calc(50%-148px)]' 
+                        <div className={`absolute z-20 ${isFullscreen
+                            ? 'left-[calc(50%+84px)] top-[calc(50%-148px)]'
                             : 'left-[calc(50%+42px)] top-[calc(50%-80px)]'
-                        }`}>
+                          }`}>
                           <PedestrianLight status={pN} isFullscreen={isFullscreen} />
                         </div>
                       </>
@@ -301,11 +304,10 @@ const Dashboard = () => {
                     const isWalk = pS === 'WALK';
                     return (
                       <>
-                        <div className={`absolute left-1/2 transform -translate-x-1/2 z-10 pointer-events-none ${
-                          isFullscreen 
-                            ? 'top-[calc(50%+102px)] w-32 h-12' 
+                        <div className={`absolute left-1/2 transform -translate-x-1/2 z-10 pointer-events-none ${isFullscreen
+                            ? 'top-[calc(50%+102px)] w-32 h-12'
                             : 'top-[calc(50%+55px)] w-16 h-6.5'
-                        }`}>
+                          }`}>
                           <div className="w-full h-full flex justify-between px-0.5">
                             {[...Array(8)].map((_, i) => (
                               <div key={i} className={`h-full rounded-[0.5px] bg-white shadow-sm ${isFullscreen ? 'w-[3.5px]' : 'w-[2px]'}`} />
@@ -313,9 +315,8 @@ const Dashboard = () => {
                           </div>
                           {isWalk && (
                             <motion.div
-                              className={`absolute select-none pointer-events-none filter drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)] ${
-                                isFullscreen ? 'text-sm -top-4' : 'text-xs -top-3'
-                              }`}
+                              className={`absolute select-none pointer-events-none filter drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)] ${isFullscreen ? 'text-sm -top-4' : 'text-xs -top-3'
+                                }`}
                               animate={{ left: ['105%', '-5%'], opacity: [0, 1, 1, 1, 0] }}
                               transition={{ duration: 3.8, repeat: Infinity, ease: 'linear' }}
                             >
@@ -324,11 +325,10 @@ const Dashboard = () => {
                           )}
                         </div>
                         {/* South Pedestrian Signal Light (Left Curb) */}
-                        <div className={`absolute z-20 ${
-                          isFullscreen 
-                            ? 'left-[calc(50%-98px)] top-[calc(50%+102px)]' 
+                        <div className={`absolute z-20 ${isFullscreen
+                            ? 'left-[calc(50%-98px)] top-[calc(50%+102px)]'
                             : 'left-[calc(50%-52px)] top-[calc(50%+55px)]'
-                        }`}>
+                          }`}>
                           <PedestrianLight status={pS} isFullscreen={isFullscreen} />
                         </div>
                       </>
@@ -341,19 +341,17 @@ const Dashboard = () => {
                     const isWalk = pW === 'WALK';
                     return (
                       <>
-                        <div className={`absolute top-1/2 transform -translate-y-1/2 z-10 flex flex-col justify-between pointer-events-none ${
-                          isFullscreen 
-                            ? 'left-[calc(50%-145px)] w-12 h-32 py-0.5' 
+                        <div className={`absolute top-1/2 transform -translate-y-1/2 z-10 flex flex-col justify-between pointer-events-none ${isFullscreen
+                            ? 'left-[calc(50%-145px)] w-12 h-32 py-0.5'
                             : 'left-[calc(50%-78px)] w-6.5 h-16 py-0.5'
-                        }`}>
+                          }`}>
                           {[...Array(8)].map((_, i) => (
                             <div key={i} className={`w-full rounded-[0.5px] bg-white shadow-sm ${isFullscreen ? 'h-[3.5px]' : 'h-[2px]'}`} />
                           ))}
                           {isWalk && (
                             <motion.div
-                              className={`absolute select-none pointer-events-none filter drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)] ${
-                                isFullscreen ? 'text-sm -left-4' : 'text-xs -left-3'
-                              }`}
+                              className={`absolute select-none pointer-events-none filter drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)] ${isFullscreen ? 'text-sm -left-4' : 'text-xs -left-3'
+                                }`}
                               animate={{ top: ['-5%', '100%'], opacity: [0, 1, 1, 1, 0] }}
                               transition={{ duration: 3.8, repeat: Infinity, ease: 'linear' }}
                             >
@@ -362,11 +360,10 @@ const Dashboard = () => {
                           )}
                         </div>
                         {/* West Pedestrian Signal Light (Top Curb) */}
-                        <div className={`absolute z-20 ${
-                          isFullscreen 
-                            ? 'left-[calc(50%-148px)] top-[calc(50%-98px)]' 
+                        <div className={`absolute z-20 ${isFullscreen
+                            ? 'left-[calc(50%-148px)] top-[calc(50%-98px)]'
                             : 'left-[calc(50%-80px)] top-[calc(50%-52px)]'
-                        }`}>
+                          }`}>
                           <PedestrianLight status={pW} isFullscreen={isFullscreen} />
                         </div>
                       </>
@@ -379,19 +376,17 @@ const Dashboard = () => {
                     const isWalk = pE === 'WALK';
                     return (
                       <>
-                        <div className={`absolute top-1/2 transform -translate-y-1/2 z-10 flex flex-col justify-between pointer-events-none ${
-                          isFullscreen 
-                            ? 'left-[calc(50%+102px)] w-12 h-32 py-0.5' 
+                        <div className={`absolute top-1/2 transform -translate-y-1/2 z-10 flex flex-col justify-between pointer-events-none ${isFullscreen
+                            ? 'left-[calc(50%+102px)] w-12 h-32 py-0.5'
                             : 'left-[calc(50%+55px)] w-6.5 h-16 py-0.5'
-                        }`}>
+                          }`}>
                           {[...Array(8)].map((_, i) => (
                             <div key={i} className={`w-full rounded-[0.5px] bg-white shadow-sm ${isFullscreen ? 'h-[3.5px]' : 'h-[2px]'}`} />
                           ))}
                           {isWalk && (
                             <motion.div
-                              className={`absolute select-none pointer-events-none filter drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)] ${
-                                isFullscreen ? 'text-sm -right-4' : 'text-xs -right-3'
-                              }`}
+                              className={`absolute select-none pointer-events-none filter drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)] ${isFullscreen ? 'text-sm -right-4' : 'text-xs -right-3'
+                                }`}
                               animate={{ top: ['105%', '-5%'], opacity: [0, 1, 1, 1, 0] }}
                               transition={{ duration: 3.8, repeat: Infinity, ease: 'linear' }}
                             >
@@ -400,11 +395,10 @@ const Dashboard = () => {
                           )}
                         </div>
                         {/* East Pedestrian Signal Light (Bottom Curb) */}
-                        <div className={`absolute z-20 ${
-                          isFullscreen 
-                            ? 'left-[calc(50%+102px)] top-[calc(50%+84px)]' 
+                        <div className={`absolute z-20 ${isFullscreen
+                            ? 'left-[calc(50%+102px)] top-[calc(50%+84px)]'
                             : 'left-[calc(50%+55px)] top-[calc(50%+42px)]'
-                        }`}>
+                          }`}>
                           <PedestrianLight status={pE} isFullscreen={isFullscreen} />
                         </div>
                       </>
@@ -413,29 +407,29 @@ const Dashboard = () => {
                 </div>
 
                 {/* Traffic Lights */}
-                <TrafficLight 
-                  direction="N" 
+                <TrafficLight
+                  direction="N"
                   signal={state?.signal}
                   phase={state?.phase}
                   emergencyActive={state?.emergencyActive && state?.emergencyDirection === 'N'}
                   isFullscreen={isFullscreen}
                 />
-                <TrafficLight 
-                  direction="S" 
+                <TrafficLight
+                  direction="S"
                   signal={state?.signal}
                   phase={state?.phase}
                   emergencyActive={state?.emergencyActive && state?.emergencyDirection === 'S'}
                   isFullscreen={isFullscreen}
                 />
-                <TrafficLight 
-                  direction="E" 
+                <TrafficLight
+                  direction="E"
                   signal={state?.signal}
                   phase={state?.phase}
                   emergencyActive={state?.emergencyActive && state?.emergencyDirection === 'E'}
                   isFullscreen={isFullscreen}
                 />
-                <TrafficLight 
-                  direction="W" 
+                <TrafficLight
+                  direction="W"
                   signal={state?.signal}
                   phase={state?.phase}
                   emergencyActive={state?.emergencyActive && state?.emergencyDirection === 'W'}
@@ -463,12 +457,11 @@ const Dashboard = () => {
                 {state?.queues && Object.entries(state.queues).map(([lane, count]) => (
                   <div
                     key={lane}
-                    className={`absolute text-xs font-bold text-white bg-[#1E2939] px-2.5 py-1 rounded-md shadow-sm z-30 ${
-                      lane === 'N' ? 'top-2 left-1/2 transform -translate-x-1/2' :
-                      lane === 'S' ? 'bottom-2 left-1/2 transform -translate-x-1/2' :
-                      lane === 'E' ? 'right-2 top-1/2 transform -translate-y-1/2' :
-                      'left-2 top-1/2 transform -translate-y-1/2'
-                    }`}
+                    className={`absolute text-xs font-bold text-white bg-[#1E2939] px-2.5 py-1 rounded-md shadow-sm z-30 ${lane === 'N' ? 'top-2 left-1/2 transform -translate-x-1/2' :
+                        lane === 'S' ? 'bottom-2 left-1/2 transform -translate-x-1/2' :
+                          lane === 'E' ? 'right-2 top-1/2 transform -translate-y-1/2' :
+                            'left-2 top-1/2 transform -translate-y-1/2'
+                      }`}
                   >
                     {lane}: {count}
                   </div>
@@ -489,11 +482,10 @@ const Dashboard = () => {
                         <button
                           key={s}
                           onClick={() => setSpeed && setSpeed(s)}
-                          className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                            simulationSpeed === s
+                          className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${simulationSpeed === s
                               ? 'bg-blue-600 text-white shadow-md'
                               : 'text-gray-300 hover:bg-gray-800'
-                          }`}
+                            }`}
                           title={`Set simulation speed to ${s}x`}
                         >
                           {s}x
@@ -501,14 +493,36 @@ const Dashboard = () => {
                       ))}
                     </div>
 
+                    {/* Weather-Adaptive Clearance Mode Control */}
+                    <div className="flex items-center space-x-1 bg-gray-900/90 backdrop-blur-md border border-gray-700 p-1 rounded-xl shadow-2xl">
+                      {[
+                        { mode: 'normal', label: 'Normal', icon: Sun },
+                        { mode: 'rain', label: 'Rain', icon: CloudRain },
+                        { mode: 'fog', label: 'Fog', icon: CloudFog }
+                      ].map(({ mode, label, icon: Icon }) => (
+                        <button
+                          key={mode}
+                          onClick={() => setWeather && setWeather(mode)}
+                          className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center space-x-1 ${
+                            (state?.weather_mode || weatherMode || 'normal') === mode
+                              ? 'bg-amber-600 text-white shadow-md'
+                              : 'text-gray-300 hover:bg-gray-800'
+                          }`}
+                          title={`Set weather mode to ${label}`}
+                        >
+                          <Icon size={13} />
+                          <span>{label}</span>
+                        </button>
+                      ))}
+                    </div>
+
                     <button
                       onClick={() => triggerEmergencyVehicle && triggerEmergencyVehicle()}
                       disabled={state?.emergencyActive}
-                      className={`px-6 py-2.5 rounded-xl font-bold text-sm text-white transition-all shadow-2xl flex items-center space-x-2 ${
-                        state?.emergencyActive
+                      className={`px-6 py-2.5 rounded-xl font-bold text-sm text-white transition-all shadow-2xl flex items-center space-x-2 ${state?.emergencyActive
                           ? 'bg-red-700 animate-pulse cursor-default'
                           : 'bg-red-600 hover:bg-red-700 active:scale-95'
-                      }`}
+                        }`}
                       title="Dispatch emergency vehicle (Random approach)"
                     >
                       <span>{state?.emergencyActive ? `🚨 EMERGENCY ACTIVE (${state?.emergencyDirection || ''})` : 'EMERGENCY MODE'}</span>
@@ -524,7 +538,7 @@ const Dashboard = () => {
                 )}
               </div>
 
-              {/* Signal Timer & Emergency Mode Button */}
+              {/* Signal Timer, Weather Clearance Status & Emergency Mode Button */}
               {state?.phase_remaining_sec !== undefined && (
                 <div className="mt-4 flex flex-wrap items-center justify-center gap-3">
                   <div className="bg-gray-800 text-white px-4 py-2 rounded-lg shadow-sm">
@@ -532,14 +546,53 @@ const Dashboard = () => {
                       Current: {state.signal} ({state.phase || 'GREEN'}) | {state.clearance_status ? state.clearance_status : `${state.phase_label || 'Remaining'}: ${state.phase_remaining_sec}s`}
                     </span>
                   </div>
+
+                  {/* Segmented Weather Buttons */}
+                  <div className="flex items-center bg-gray-800 p-1 rounded-lg shadow-sm border border-gray-700">
+                    {[
+                      { mode: 'normal', label: 'Normal', icon: Sun },
+                      { mode: 'rain', label: 'Rain', icon: CloudRain },
+                      { mode: 'fog', label: 'Fog', icon: CloudFog }
+                    ].map(({ mode, label, icon: Icon }) => {
+                      const isActiveRequested = (state?.weather_mode || weatherMode || 'normal') === mode;
+                      return (
+                        <button
+                          key={mode}
+                          onClick={() => setWeather && setWeather(mode)}
+                          className={`px-3 py-1 text-xs font-semibold rounded-md transition-all flex items-center space-x-1 cursor-pointer ${
+                            isActiveRequested
+                              ? 'bg-amber-600 text-white shadow-sm font-bold'
+                              : 'text-gray-300 hover:text-white hover:bg-gray-700'
+                          }`}
+                        >
+                          <Icon size={14} />
+                          <span>{label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Compact Weather Clearance Status Badge */}
+                  {state?.yellow_duration !== undefined && (
+                    <div className="bg-gray-900/90 border border-gray-700 text-amber-300 px-3 py-1.5 rounded-lg text-xs font-mono font-medium shadow-sm flex items-center space-x-1.5">
+                      <span className="capitalize font-bold text-white">
+                        {state?.effective_weather_mode || state?.weather_mode || 'normal'}
+                        {state?.effective_weather_mode && state?.weather_mode && state.effective_weather_mode !== state.weather_mode ? ` (Pending ${state.weather_mode})` : ''}
+                      </span>
+                      <span>·</span>
+                      <span>Yellow {state.yellow_duration}s</span>
+                      <span>·</span>
+                      <span>All-red {state.all_red_duration}s</span>
+                    </div>
+                  )}
+
                   <button
                     onClick={() => triggerEmergencyVehicle && triggerEmergencyVehicle()}
                     disabled={state?.emergencyActive}
-                    className={`px-5 py-2 rounded-lg font-bold text-sm text-white transition-all shadow-md flex items-center space-x-1.5 ${
-                      state?.emergencyActive
+                    className={`px-5 py-2 rounded-lg font-bold text-sm text-white transition-all shadow-md flex items-center space-x-1.5 ${state?.emergencyActive
                         ? 'bg-red-700 animate-pulse cursor-default'
                         : 'bg-red-600 hover:bg-red-700 active:scale-95'
-                    }`}
+                      }`}
                     title="Dispatch emergency vehicle (Random approach)"
                   >
                     <span>{state?.emergencyActive ? `🚨 EMERGENCY ACTIVE (${state?.emergencyDirection || ''})` : 'EMERGENCY MODE'}</span>
@@ -555,7 +608,7 @@ const Dashboard = () => {
               <h2 className="text-xl font-semibold text-gray-800 mb-4">
                 Analytics
               </h2>
-              
+
               {/* Quick Stats */}
               <div className="space-y-4 mb-6">
                 <div className="bg-blue-50 p-4 rounded-lg">
@@ -565,7 +618,7 @@ const Dashboard = () => {
                     <div className="text-xs text-gray-500 mt-1">⚠️ Empty Road</div>
                   )}
                 </div>
-                
+
                 <div className="bg-green-50 p-4 rounded-lg">
                   <div className="text-sm text-green-600 font-medium">Active Roads</div>
                   <div className="text-2xl font-bold text-green-800">
@@ -575,14 +628,14 @@ const Dashboard = () => {
                     {state?.roads_with_traffic?.join(', ') || 'None'}
                   </div>
                 </div>
-                
+
                 <div className="bg-orange-50 p-4 rounded-lg">
                   <div className="text-sm text-orange-600 font-medium">Wait Time</div>
                   <div className="text-2xl font-bold text-orange-800">
                     {(state?.avg_wait_time || 0).toFixed(1)}s
                   </div>
                 </div>
-                
+
                 {state?.emergencyActive && (
                   <div className="bg-red-50 p-4 rounded-lg border border-red-200">
                     <div className="text-sm text-red-600 font-medium">Emergency Mode</div>
@@ -592,7 +645,7 @@ const Dashboard = () => {
                     <div className="text-xs text-red-700 mt-1">Priority Active</div>
                   </div>
                 )}
-                
+
                 {state?.postEmergencyMode && (
                   <div className="bg-yellow-50 p-4 rounded-lg border border-yellow-200">
                     <div className="text-sm text-yellow-600 font-medium">Post-Emergency</div>
@@ -605,7 +658,7 @@ const Dashboard = () => {
                   </div>
                 )}
               </div>
-              
+
               <ChartPanel metrics={metrics} state={state} />
             </div>
           </div>
@@ -630,8 +683,8 @@ const Dashboard = () => {
                 </button>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+
                 {/* Data Source Toggle */}
                 <div className="space-y-3">
                   <label className="block text-sm font-medium text-gray-700">
@@ -640,25 +693,67 @@ const Dashboard = () => {
                   <div className="flex space-x-2">
                     <button
                       onClick={switchToMock}
-                      className={`px-4 py-2 text-sm font-medium rounded-lg ${
-                        useMock
+                      className={`px-4 py-2 text-sm font-medium rounded-lg cursor-pointer ${useMock
                           ? 'bg-blue-500 text-white'
                           : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                      }`}
+                        }`}
                     >
                       Mock Data
                     </button>
                     <button
                       onClick={switchToBackend}
-                      className={`px-4 py-2 text-sm font-medium rounded-lg ${
-                        !useMock
+                      className={`px-4 py-2 text-sm font-medium rounded-lg cursor-pointer ${!useMock
                           ? 'bg-blue-500 text-white'
                           : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                      }`}
+                        }`}
                     >
                       Live Backend
                     </button>
                   </div>
+                </div>
+
+                {/* Generated Traffic Demand Multiplier */}
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <label className="block text-sm font-medium text-gray-700">
+                      Generated Traffic
+                    </label>
+                    {demandPendingReset && useMock && (
+                      <span className="text-[10px] font-bold font-mono px-2 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-300 animate-pulse">
+                        Applies on next reset
+                      </span>
+                    )}
+                  </div>
+                  {useMock ? (
+                    <div className="flex space-x-2">
+                      <button
+                        onClick={() => setGeneratedDemandMultiplier && setGeneratedDemandMultiplier(0.5)}
+                        className={`px-3 py-2 text-xs font-bold rounded-lg border transition cursor-pointer flex items-center space-x-1 ${
+                          stagedDemand === 0.5
+                            ? 'bg-indigo-600 text-white border-indigo-700 shadow-sm'
+                            : 'bg-gray-100 text-gray-700 border-gray-300 hover:bg-gray-200'
+                        }`}
+                        title="Moderate demand: 0.5x rate per second"
+                      >
+                        <span>Moderate 0.5×</span>
+                      </button>
+                      <button
+                        onClick={() => setGeneratedDemandMultiplier && setGeneratedDemandMultiplier(1.0)}
+                        className={`px-3 py-2 text-xs font-bold rounded-lg border transition cursor-pointer flex items-center space-x-1 ${
+                          stagedDemand === 1.0
+                            ? 'bg-indigo-600 text-white border-indigo-700 shadow-sm'
+                            : 'bg-gray-100 text-gray-700 border-gray-300 hover:bg-gray-200'
+                        }`}
+                        title="Peak time demand: 1.0x rate per second"
+                      >
+                        <span>Peak Time 1.0×</span>
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="p-2 rounded bg-gray-100 border border-gray-300 text-[11px] text-gray-500 font-mono">
+                      Disabled in Live Backend mode (managed by backend Python process)
+                    </div>
+                  )}
                 </div>
 
                 {/* Simulation Speed */}
@@ -688,9 +783,9 @@ const Dashboard = () => {
                     {useMock && (
                       <button
                         onClick={resetSimulation}
-                        className="px-4 py-2 text-sm font-medium text-white bg-red-500 rounded-lg hover:bg-red-600"
+                        className="px-4 py-2 text-sm font-medium text-white bg-red-500 rounded-lg hover:bg-red-600 cursor-pointer shadow-sm"
                       >
-                        Reset
+                        Reset Session
                       </button>
                     )}
                   </div>

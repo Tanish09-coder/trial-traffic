@@ -531,6 +531,14 @@ export const BenchmarkComparison = ({
             <span className="font-semibold text-slate-800">Generated Schedule (Seed 42)</span>
           </div>
           <div>
+            <span className="text-[10px] text-slate-400 block font-bold uppercase">Demand Multiplier</span>
+            <span className="font-mono font-semibold text-indigo-700">
+              {metadata?.inputConfig?.demandMultiplier !== undefined
+                ? `${metadata.inputConfig.demandMultiplier}× (${metadata.inputConfig.demandMultiplier === 0.5 ? 'Moderate' : 'Peak Time'})`
+                : '0.5× (Moderate)'}
+            </span>
+          </div>
+          <div>
             <span className="text-[10px] text-slate-400 block font-bold uppercase">Fixed Plan</span>
             <span className="font-mono text-slate-700">{metadata.fixedPlanLabel || 'Uniform Fixed Baseline — 45s per direction'}</span>
           </div>

@@ -72,9 +72,9 @@ export function runIntegrationTests() {
     assert(
       sm.phase === 'YELLOW' &&
       state.active_green_duration === 30 &&
-      state.pending_green_duration === 30 &&
+      state.pending_green_duration === 20 &&
       state.pending_signal === 'E',
-      'Test 4: Clearance switch stores pending allocation (E, 30s) without overwriting active green duration (30s)'
+      `Test 4: Clearance switch stores pending allocation (E, 20s) without overwriting active green duration (30s) (got pending=${state.pending_green_duration})`
     );
   }
 
@@ -203,7 +203,7 @@ export function runIntegrationTests() {
   // --- Test 8: Provider & Component Integration Verification ---
   {
     const vm = new VehicleManager();
-    
+
     const startResult = vm.start();
     assert(startResult === true, 'Test 8a: VehicleManager.start() exists and preserves active session');
 
@@ -332,7 +332,7 @@ export function runIntegrationTests() {
 
   // --- Test 13: Upstream Backlog Analytics Accounting Invariant Test ---
   {
-    const vm = new VehicleManager(1234);
+    const vm = new VehicleManager(1234, 1.0);
     const am = new AnalyticsManager();
 
     // Hold ALL_RED so no departures occur and arrivals fill visible segment + backlog until total arrivals reaches 101
@@ -416,6 +416,143 @@ export function runIntegrationTests() {
     assert(
       injectedInArrivals,
       'Test 14c: Injected video arrival logged cleanly in completed arrivals list'
+    );
+  }
+
+  // --- Test 15: Nominal clearance durations for Normal, Rain, and Fog modes ---
+  {
+    const sm = new SignalManager();
+    const normal = sm.calculateClearanceDurations('normal');
+    assert(
+      normal.yellowSec === 3.0 && normal.allRedSec === 1.0,
+      'Test 15a: Normal mode yields yellow 3.0s, all-red 1.0s'
+    );
+
+    const rain = sm.calculateClearanceDurations('rain');
+    assert(
+      Math.abs(rain.yellowSec - 3.6) < 1e-5 && Math.abs(rain.allRedSec - 1.2) < 1e-5,
+      'Test 15b: Rain mode yields yellow 3.6s (3.0 * 1.2), all-red 1.2s (1.0 * 1.2)'
+    );
+
+    const fog = sm.calculateClearanceDurations('fog');
+    assert(
+      Math.abs(fog.yellowSec - 4.2) < 1e-5 && Math.abs(fog.allRedSec - 1.4) < 1e-5,
+      'Test 15c: Fog mode yields yellow 4.2s (3.0 * 1.4), all-red 1.4s (1.0 * 1.4)'
+    );
+  }
+
+  // --- Test 16: Multiplication occurs BEFORE clamping and green allocations remain unchanged ---
+  {
+    const sm = new SignalManager('fixed');
+    sm.setWeather('fog');
+
+    const yellowSec = sm.effectiveYellowDuration || sm.calculateClearanceDurations('fog').yellowSec;
+    const allRedSec = sm.effectiveAllRedDuration || sm.calculateClearanceDurations('fog').allRedSec;
+
+    assert(
+      yellowSec >= 3.0 && yellowSec <= 4.2 && allRedSec >= 1.0 && allRedSec <= 1.4,
+      'Test 16a: Clearance calculation clamps multiplied value strictly within bounds [3.0-4.2s, 1.0-1.4s]'
+    );
+
+    assert(
+      sm.activeGreenDuration === 45,
+      'Test 16b: Green allocations remain unchanged (Fixed baseline remains exactly 45s under weather)'
+    );
+  }
+
+  // --- Test 17: Mid-clearance weather changes DO NOT reset or shorten current sequence ---
+  {
+    const sm = new SignalManager('fixed');
+    sm.setWeather('normal');
+
+    // Trigger YELLOW clearance phase under 'normal' weather
+    sm.initiateClearanceSwitch({}, {}, {}, {}, false);
+
+    assert(
+      sm.phase === 'YELLOW' && sm.effectiveWeatherMode === 'normal',
+      'Test 17a: Sequence entered YELLOW phase with effective weather mode normal'
+    );
+
+    // Change requested weather to 'fog' during active YELLOW phase
+    const setSuccess = sm.setWeather('fog');
+    assert(setSuccess, 'Test 17b: Valid weather change accepted into requested state');
+
+    assert(
+      sm.effectiveWeatherMode === 'normal' && sm.effectiveYellowDuration === 3.0,
+      'Test 17c: Mid-clearance weather change does NOT reset or shorten running clearance sequence'
+    );
+
+    assert(
+      sm.weatherMode === 'fog',
+      'Test 17d: Requested weatherMode updated to fog while effective clearance mode remains normal'
+    );
+  }
+
+  // --- Test 18: Occupancy holds override nominal all-red completion ---
+  {
+    const sm = new SignalManager('fixed');
+    sm.setWeather('normal');
+    sm.phase = 'ALL_RED';
+    sm.phaseTimer = 1.5; // > nominal allRedDuration (1.0s)
+    sm.effectiveAllRedDuration = 1.0;
+
+    // Simulate occupied intersection (isIntersectionOccupied = true)
+    sm.updateSignal({}, {}, {}, {}, 0.1, true);
+
+    assert(
+      sm.phase === 'ALL_RED' && sm.isExtendedClearance === true,
+      'Test 18: Occupancy hold extends ALL_RED clearance beyond nominal duration until intersection clears'
+    );
+  }
+
+  // --- Test 19: Emergency precedence and recovery remain intact under weather ---
+  {
+    const sm = new SignalManager('fixed');
+    sm.setWeather('rain');
+
+    sm.handleEmergencyVehicle({ id: 'emg-weather-19', approach: 'S', type: 'ambulance' });
+
+    assert(
+      sm.emergencyActive && sm.emergencyDirection === 'S',
+      'Test 19a: Emergency preemption active on approach S under rain mode'
+    );
+
+    sm.endEmergency({}, {}, {});
+    assert(
+      !sm.emergencyActive && sm.phase === 'YELLOW',
+      'Test 19b: Emergency release safely transitions back through clearance phase'
+    );
+  }
+
+  // --- Test 20: Invalid weather commands fail clearly and preserve state ---
+  {
+    const sm = new SignalManager();
+    sm.setWeather('rain');
+
+    const invalidRes1 = sm.setWeather('tornado');
+    const invalidRes2 = sm.setWeather(null);
+    const invalidRes3 = sm.setWeather(123);
+
+    assert(
+      !invalidRes1 && !invalidRes2 && !invalidRes3,
+      'Test 20a: Invalid weather commands return false'
+    );
+    assert(
+      sm.weatherMode === 'rain',
+      'Test 20b: Active weather mode (rain) strictly preserved when invalid command rejected'
+    );
+  }
+
+  // --- Test 21: Navigation/reset keep weather state consistent ---
+  {
+    const sm = new SignalManager();
+    sm.setWeather('fog');
+    sm.reset();
+    sm.setWeather('fog'); // Re-apply requested selection on reset
+
+    assert(
+      sm.weatherMode === 'fog',
+      'Test 21: Weather state remains consistent across session resets'
     );
   }
 

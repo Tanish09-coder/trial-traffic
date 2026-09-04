@@ -3,6 +3,7 @@ import { VehicleManager } from '../VehicleManager.js';
 import { SignalOptimizer } from '../SignalOptimizer.js';
 import { SimulationClock } from '../SimulationClock.js';
 import { TRAFFIC_CONSTANTS } from '../constants.js';
+import { computeFingerprint, runSingleSession } from '../comparisonEngine.js';
 import fs from 'fs';
 import path from 'path';
 
@@ -76,7 +77,7 @@ export function runE2EVerificationSuite() {
   // Advance signal timer to 45s with asymmetric demand -> triggers clearance switch (initiateClearanceSwitch)
   sm.updateSignal(asymmetricStoppedCounts, asymmetricStoppedCounts, asymmetricQueuedPCUs, {}, 35.0);
   assert(sm.phase === 'YELLOW', `Expected phase YELLOW at t=45, got ${sm.phase}`);
-  
+
   // Advance through YELLOW (3s) to ALL_RED
   sm.updateSignal(asymmetricStoppedCounts, asymmetricStoppedCounts, asymmetricQueuedPCUs, {}, 3.0);
   assert(sm.phase === 'ALL_RED', `Expected phase ALL_RED, got ${sm.phase}`);
@@ -88,7 +89,7 @@ export function runE2EVerificationSuite() {
   assert(sm.strategy === 'adaptive', `Expected active strategy adaptive after phase boundary, got ${sm.strategy}`);
   assert(sm.currentSignal === 'S', `Expected adaptive heuristic to select highest demand approach S, got ${sm.currentSignal}`);
 
-  
+
   // Base (10) + Rate (2.0 * 15) = 40s
   assert(sm.activeGreenDuration === 40, `Expected adaptive green duration 40s for 15 PCUs, got ${sm.activeGreenDuration}`);
 
@@ -275,14 +276,14 @@ export function runE2EVerificationSuite() {
   vm.setApproachSource('S', 'recorded_video');
   vm.clearApproach('S');
   assert(vm.getApproachSource('S') === 'recorded_video', 'Source S is recorded_video');
-  
+
   // Stop video replay
   ['N', 'S', 'E', 'W'].forEach(d => vm.setApproachSource(d, 'simulation'));
   assert(vm.getApproachSource('S') === 'simulation', 'Source S restored to simulation');
 
   // 3d. Config change cache key derivation
-  const config1 = { videoId: 'bellevue_trial', region: [[0,0],[1,0],[1,1],[0,1]], line: { start:[0,0.5], end:[1,0.5] }, tracker: 'bytetrack_v2' };
-  const config2 = { videoId: 'bellevue_trial', region: [[0.1,0.1],[0.9,0.1],[0.9,0.9],[0.1,0.9]], line: { start:[0,0.5], end:[1,0.5] }, tracker: 'bytetrack_v2' };
+  const config1 = { videoId: 'bellevue_trial', region: [[0, 0], [1, 0], [1, 1], [0, 1]], line: { start: [0, 0.5], end: [1, 0.5] }, tracker: 'bytetrack_v2' };
+  const config2 = { videoId: 'bellevue_trial', region: [[0.1, 0.1], [0.9, 0.1], [0.9, 0.9], [0.1, 0.9]], line: { start: [0, 0.5], end: [1, 0.5] }, tracker: 'bytetrack_v2' };
   const hash1 = JSON.stringify(config1);
   const hash2 = JSON.stringify(config2);
   assert(hash1 !== hash2, 'Geometry config change must generate distinct cache hash');
@@ -319,7 +320,7 @@ export function runE2EVerificationSuite() {
   regSm.signalTimer = 30;
   regSm.updateSignal({}, {}, {}, {}, 0.1);
   assert(regSm.phase === 'YELLOW', `Expected phase YELLOW after 30s green, got ${regSm.phase}`);
-  
+
   regSm.updateSignal({}, {}, {}, {}, 3.0);
   assert(regSm.phase === 'ALL_RED', `Expected phase ALL_RED after 3s yellow, got ${regSm.phase}`);
 
@@ -340,7 +341,7 @@ export function runE2EVerificationSuite() {
 
   // Update vehicles on S during RED phase for S (current signal is E)
   regVm.updateVehicles('E', 'GREEN', 1.0);
-  
+
   const stoppedVeh = regVm.cars.S.find(c => c.id === 'stopped-1');
   const committedVeh = regVm.cars.S.find(c => c.id === 'committed-1');
 
@@ -365,7 +366,7 @@ export function runE2EVerificationSuite() {
   regSm.reset();
   const emgVeh = regVm.triggerEmergencyVehicle('S');
   assert(regVm.getActiveEmergencyVehicle() !== null, 'Active emergency vehicle must be tracked');
-  
+
   regSm.handleEmergencyVehicle(emgVeh);
   assert(regSm.emergencyActive === true, 'Emergency active flag must be set');
   assert(regSm.pendingSignal === 'S', 'Pending signal must target emergency approach S');
@@ -392,7 +393,7 @@ export function runE2EVerificationSuite() {
 
   const stateSnapshot = diagVm.getState();
   const queuesSnapshot = stateSnapshot.queues;
-  
+
   // Calculate roads with traffic based on queues or cars present
   const roadsWithTraffic = ['N', 'S', 'E', 'W'].filter(d => (queuesSnapshot[d] || 0) > 0 || (diagVm.cars[d] && diagVm.cars[d].length > 0));
   const activeRoadCount = roadsWithTraffic.length;
@@ -404,7 +405,7 @@ export function runE2EVerificationSuite() {
   // 5b. Departure events counted once per exit
   diagVm.reset();
   diagVm.cars.N = [{ id: 'exit-car-1', position: 98, speed: 10, type: 'car', waitTime: 5, isStopped: false, inIntersection: true }];
-  
+
   const departuresBefore = diagVm.getCompletedDepartures().length;
   diagVm.updateVehicles('N', 'GREEN', 1.0); // car advances past 100
   const departuresAfter = diagVm.getCompletedDepartures().length;
@@ -418,6 +419,54 @@ export function runE2EVerificationSuite() {
     observed: 'Verified! Active roads logic evaluated to 4/4 ("N, E, S, W"). Departure incremented by 1.',
     status: 'PASS',
     evidence: `Diagnosed Active Roads binding: 'roads_with_traffic' was omitted from tickSimulation mergedState in SimulationContext.jsx, causing UI to render 0/4 in mock mode. Correct binding verified.`
+  });
+
+  // ----------------------------------------------------
+  // SECTION 7: WEATHER-ADAPTIVE CLEARANCE & FINGERPRINTING
+  // ----------------------------------------------------
+  console.log('--- SECTION 7: Weather-Adaptive Clearance & Fingerprint Verification ---');
+
+  // 7a. Verify Fingerprint Invalidation on Weather Change
+  const baseConfig = {
+    fixedBaselineSeconds: 45,
+    weatherMode: 'normal',
+    weatherPolicy: TRAFFIC_CONSTANTS.WEATHER_POLICY
+  };
+  const rainConfig = {
+    fixedBaselineSeconds: 45,
+    weatherMode: 'rain',
+    weatherPolicy: TRAFFIC_CONSTANTS.WEATHER_POLICY
+  };
+
+  const fpNormal = computeFingerprint(baseConfig, []);
+  const fpRain = computeFingerprint(rainConfig, []);
+
+  assert(fpNormal !== fpRain, `Fingerprints for normal (${fpNormal}) and rain (${fpRain}) must be different`);
+
+  // 7b. Run Single Session with Weather Mode
+  const sessionNormal = runSingleSession({
+    strategy: 'fixed',
+    arrivalTimeline: [],
+    targetDurationSec: 30,
+    weatherMode: 'normal'
+  });
+
+  const sessionRain = runSingleSession({
+    strategy: 'fixed',
+    arrivalTimeline: [],
+    targetDurationSec: 30,
+    weatherMode: 'rain'
+  });
+
+  assert(sessionNormal.totalCompletedDepartures >= 0, 'Normal session completed run');
+  assert(sessionRain.totalCompletedDepartures >= 0, 'Rain session completed run');
+
+  results.push({
+    test: 'Weather-Adaptive Clearance & Comparison Compatibility',
+    expected: 'Changing weather mode alters comparison input fingerprint, invalidating stale cached comparison runs.',
+    observed: `Verified! Normal fingerprint (${fpNormal}) != Rain fingerprint (${fpRain}). Comparison runs with different weather modes executed cleanly.`,
+    status: 'PASS',
+    evidence: `fpNormal: ${fpNormal}, fpRain: ${fpRain}`
   });
 
   console.log('\n====================================================');

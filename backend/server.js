@@ -91,6 +91,17 @@ app.post('/api/simulation/speed', (req, res) => {
   }
 });
 
+// Set simulation weather
+app.post('/api/simulation/weather', (req, res) => {
+  const { weather } = req.body;
+  if (pyshell) {
+    pyshell.send(`set_weather ${weather}`);
+    res.json({ status: 'Weather updated' });
+  } else {
+    res.status(400).json({ error: 'Simulation not running' });
+  }
+});
+
 // Reset simulation
 app.post('/api/simulation/reset', (req, res) => {
   if (pyshell) {
