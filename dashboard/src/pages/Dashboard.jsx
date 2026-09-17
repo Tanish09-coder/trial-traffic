@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Maximize, Minimize, Sun, CloudRain, CloudFog, Video, BarChart2, ChevronDown, ChevronUp, Sliders, RotateCcw, AlertTriangle, Siren, Car as CarIcon, Clock, BarChart3, PersonStanding, TrafficCone, TrendingUp, TrendingDown } from 'lucide-react';
+import { Maximize, Minimize, Sun, CloudRain, CloudFog, Video, BarChart2, ChevronDown, ChevronUp, Sliders, RotateCcw, AlertTriangle, Siren, Car as CarIcon, Clock, BarChart3, PersonStanding, TrafficCone, TrendingUp, TrendingDown, Globe, MapPin } from 'lucide-react';
 import { useTrafficData } from '../utils/useTrafficData';
 import { useLanguage } from '../context/LanguageContext';
 import Car from '../components/car';
@@ -14,7 +14,7 @@ import WeatherEffects from '../components/WeatherEffects';
 import Loader from '../components/Loader';
 import { calculateEnvironmentalImpact } from '../utils/environmentalImpact';
 
-const Dashboard = () => {
+const Dashboard = ({ onNavigate }) => {
   const { lang } = useLanguage();
   const {
     state,
@@ -160,8 +160,17 @@ const Dashboard = () => {
           </div>
         </div>
 
-        {/* Level of Service (IRC:106 Standard) Badge */}
-        <div className="flex items-center space-x-3">
+        {/* Level of Service (IRC:106 Standard) Badge & Live GIS Switch */}
+        <div className="flex items-center flex-wrap gap-3">
+          <button
+            onClick={() => onNavigate && onNavigate('gis-maps')}
+            className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-[#003366] hover:bg-[#1E4D8C] text-white text-xs font-bold transition shadow-xs cursor-pointer border border-blue-400/30"
+            title="Open Live Google Maps GIS Command Center"
+          >
+            <Globe size={14} className="text-[#F5A623] animate-pulse" />
+            <span>{lang === 'HI' ? 'लाइव गूगल मैप्स GIS' : 'Live Google Maps GIS'}</span>
+          </button>
+
           <div className="text-right hidden sm:block">
             <div className="text-[10px] font-bold text-[#475569] uppercase tracking-wider">{lang === 'HI' ? 'सेवा का स्तर (IRC:106)' : 'Level of Service (IRC:106)'}</div>
             <div className="text-xs font-bold text-[#0A1F44]">{losGrade.label}</div>

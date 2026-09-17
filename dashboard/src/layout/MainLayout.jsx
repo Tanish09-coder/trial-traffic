@@ -59,6 +59,7 @@ const MainLayout = ({ children, currentPage = 'dashboard', onNavigate }) => {
 
   const navItems = [
     { id: 'dashboard', label: lang === 'HI' ? 'डैशबोर्ड' : 'Dashboard', icon: LayoutDashboard },
+    { id: 'gis-maps', label: lang === 'HI' ? 'लाइव GIS व मैप्स' : 'Live GIS & Maps', icon: Globe },
     { id: 'traffic-intelligence', label: lang === 'HI' ? 'कैमरा एआई ग्रिड' : 'Camera AI Grid', icon: Video },
     { id: 'analytics', label: lang === 'HI' ? 'शहर एनालिटिक्स व कार्बन' : 'City Analytics & Carbon', icon: LineChart },
     { id: 'about', label: lang === 'HI' ? 'हमारे बारे में' : 'About Us', icon: Landmark }
@@ -135,7 +136,7 @@ const MainLayout = ({ children, currentPage = 'dashboard', onNavigate }) => {
       <header className="bg-white border-b border-[#E2E8F0] shadow-xs sticky top-0 z-50">
         <div className="max-w-[1520px] mx-auto px-4 sm:px-8 py-3.5">
           <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
-            
+
             {/* Left: MARG-DRISHTI Official Logo & Ministry Branding */}
             <div className="flex items-center space-x-3 sm:space-x-4">
               {/* MARG-DRISHTI Logo */}
@@ -191,9 +192,8 @@ const MainLayout = ({ children, currentPage = 'dashboard', onNavigate }) => {
                           }
                           setIsZoneMenuOpen(false);
                         }}
-                        className={`w-full text-left px-3.5 py-2.5 text-xs transition-colors flex items-center justify-between cursor-pointer ${
-                          selectedZone === zone ? 'bg-[#0F2C59]/10 text-[#0F2C59] font-bold' : 'text-slate-700 hover:bg-slate-50'
-                        }`}
+                        className={`w-full text-left px-3.5 py-2.5 text-xs transition-colors flex items-center justify-between cursor-pointer ${selectedZone === zone ? 'bg-[#0F2C59]/10 text-[#0F2C59] font-bold' : 'text-slate-700 hover:bg-slate-50'
+                          }`}
                       >
                         <div className="flex items-center gap-2">
                           <MapPin size={12} className={selectedZone === zone ? 'text-[#FF671F]' : 'text-slate-400'} />
@@ -228,11 +228,10 @@ const MainLayout = ({ children, currentPage = 'dashboard', onNavigate }) => {
                   <button
                     key={item.id}
                     onClick={() => onNavigate && onNavigate(item.id)}
-                    className={`flex items-center space-x-2 px-5 py-2.5 rounded-t-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
-                      isActive
+                    className={`flex items-center space-x-2 px-5 py-2.5 rounded-t-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${isActive
                         ? 'bg-white text-[#0A1F44] shadow-sm border-t-2 border-[#F5A623]'
                         : 'text-slate-200 hover:bg-[#163A6B]/60 hover:text-white'
-                    }`}
+                      }`}
                   >
                     <item.icon size={18} />
                     <span>{item.label}</span>
