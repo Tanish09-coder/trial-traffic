@@ -2,7 +2,7 @@
 // Comprehensive City-Wide Signal Directory & Real-Time Traffic Telemetry
 
 const STORAGE_KEY = 'stms_google_maps_api_key';
-const DEFAULT_FALLBACK_KEY = 'AIzaSyBhblxHd3L91ZCRM6jxh1aoV1woNIRfKfU';
+const DEFAULT_FALLBACK_KEY = '';
 
 export const CITY_PRESETS = [
   {
